@@ -34,16 +34,6 @@ def _suggest_key(value: str, taken: set) -> str:
     return key
 
 
-def _scan_values(aprx: Path, fields) -> set:
-    # parsed_json_entries (issue 0002) is the read-only **skip** policy: it yields only
-    # parseable JSON from the .aprx, silently dropping non-JSON and corrupt entries —
-    # the old per-entry parse-or-`continue` loop, now sharing the one Entry reader.
-    values: set = set()
-    for entry in parsed_json_entries(aprx):
-        values |= conn.collect_field_values(entry.parsed, fields)
-    return values
-
-
 def _write_json(path: Path, label: str, data: dict) -> bool:
     if path.exists():
         print(f"  exists, leaving as-is: {label}")
@@ -98,7 +88,12 @@ def connections_init(aprx_file: str) -> None:
     )
     fields, token = _init_fields_token(project, existing)
 
-    values = _scan_values(aprx, fields)
+    # The distinct connection strings to scaffold keys for. The field-walk lives behind
+    # ProjectConfig (issue 0003): init resolves the fields/token it is about to declare,
+    # then asks that same config object what values the binary holds — fed the parsed
+    # JSON entries from the Entry reader (issue 0002), never a hand-rolled zip walk.
+    cfg = ProjectConfig(dir=project, mode=ENV, fields=tuple(fields), token=token)
+    values = cfg.discovered_values(entry.parsed for entry in parsed_json_entries(aprx))
     if not values:
         sys.exit(f"aprx-tools: no connection strings found in fields {fields} — "
                  f"nothing to scaffold")
@@ -141,20 +136,19 @@ def connections_check() -> None:
     # against a simple-mode project. The project dir is cwd — the same declared-mode
     # paradigm the rest of the CLI uses, not a presence-sniffing walk-up.
     cfg = ProjectConfig.load(Path.cwd())
-    files = cfg.committed_connection_files()
-    if not files:
+    key_sets = cfg.connection_key_sets()  # {filename: {keys}}, env-only discovery via cfg
+    if not key_sets:
         sys.exit(f"aprx-tools: no connection files in {cfg.dir / conn.CONNECTIONS_DIR}")
 
-    maps = {f.name: conn.load_connections(f) for f in files}
-    all_keys: set = set().union(*(set(m) for m in maps.values()))
+    all_keys: set = set().union(*key_sets.values())
 
     ok = True
-    for name, m in maps.items():
-        gaps = all_keys - set(m)
+    for name, keys in key_sets.items():
+        gaps = all_keys - keys
         if gaps:
             ok = False
             print(f"  {name}: missing {', '.join(sorted(gaps))}")
 
     if ok:
-        print(f"OK — {len(files)} environment(s) define the same {len(all_keys)} key(s).")
+        print(f"OK — {len(key_sets)} environment(s) define the same {len(all_keys)} key(s).")
     sys.exit(0 if ok else 1)

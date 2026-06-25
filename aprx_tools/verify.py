@@ -24,7 +24,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import connections as conn
 from .entry import parsed_json_entries
 from .project_config import ProjectConfig
 from .util import aprx_for_src_dir, git_root, iter_src_dirs
@@ -33,18 +32,16 @@ from .compare import compare
 
 
 def _verify_env_project(src_dir: Path, cfg: ProjectConfig, env: str, problems: list) -> None:
-    fields, token = cfg.fields, cfg.token
-
-    referenced: set = set()
-    raw: set = set()
     # parsed_json_entries (issue 0002) is the read-only **skip** policy: it yields only
-    # parseable JSON, silently dropping anything else — exactly the old per-file
-    # parse-or-`continue` loop, now sharing the one Entry reader.
-    for entry in parsed_json_entries(src_dir):
-        keys, raws = conn.scan_tokens(entry.parsed, fields, token)
-        referenced |= keys
-        raw |= raws
+    # parseable JSON, silently dropping anything else. Materialise it once into a list:
+    # ProjectConfig answers two questions over the same Source below (the leak check and
+    # the per-env coverage check), and a spent generator would answer the second empty.
+    # The domain questions themselves — is the Source neutral, does each env cover its
+    # keys — now live on ProjectConfig (issue 0003), so verify no longer hand-assembles
+    # them from `scan_tokens` + set math.
+    parsed = [entry.parsed for entry in parsed_json_entries(src_dir)]
 
+    raw = cfg.leaked_values(parsed)
     if raw:
         problems.append(
             f"{src_dir.name}: raw connection string(s) in source — committed without "
@@ -69,7 +66,7 @@ def _verify_env_project(src_dir: Path, cfg: ProjectConfig, env: str, problems: l
         return
 
     for env_file in env_files:
-        missing = referenced - set(conn.load_connections(env_file))
+        missing = cfg.unresolved_keys(parsed, env_file)
         if missing:
             problems.append(
                 f"{src_dir.name}: {env_file.name} missing keys: " + ", ".join(sorted(missing))
