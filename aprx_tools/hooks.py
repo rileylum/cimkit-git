@@ -3,21 +3,26 @@
 import json
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from .explode import explode
 from .pack import pack
-from .project_config import ProjectConfig
+from .project_config import ENV, SIMPLE, ProjectConfig
 from .transform import SubstitutionError, explode_transform, pack_transform
 from .util import (
     aprx_for_src_dir,
     aprx_output_for,
     git_root,
-    is_aprx_src_dir,
     iter_src_dirs,
     src_dir_for,
 )
 from . import connections as conn
+
+#: A Project whose ``aprx.json`` cannot be read (missing / malformed / no ``mode``).
+#: Distinct from ``SIMPLE``/``ENV`` so :func:`plan_precommit` can apply the strict rule
+#: on the leak-sensitive path (block the commit) while the fail-open sweep just skips it.
+UNDECLARED = "undeclared"
 
 
 def _git(root: Path, *args) -> str:
@@ -52,122 +57,205 @@ def _unstage(root: Path, rel: str) -> None:
         _git_run(root, "rm", "--cached", "--quiet", rel)
 
 
-def _is_env_project(project_dir: Path) -> bool:
-    """True iff the Project at *project_dir* declares **environment mode**.
+def _classify_project(project_dir: Path) -> str:
+    """Read a Project's declared **Mode** from its committed ``aprx.json`` (ADR-0001):
+    ``ENV``, ``SIMPLE``, or ``UNDECLARED`` when the declaration can't be read.
 
-    Mode is read from the committed ``aprx.json`` via ``ProjectConfig`` (ADR-0001),
-    never sniffed from the presence of stray files — since every Project (simple ones
-    too) now carries an ``aprx.json``, presence-sniffing would mis-classify a simple
-    Project as env-managed and never stage its binary.
-
-    A Project whose declaration can't be read returns ``False`` here. That is safe
-    *only* because every caller of this predicate treats a non-env answer as "leave it
-    alone" (the ``_refresh_env_sources`` sweep skips it; it never bare-explodes). The
-    leak-sensitive path — exploding a *staged* binary — does **not** use this fail-open
-    predicate; it loads ``ProjectConfig`` strictly so an undeclared Project blocks the
-    commit (ADR-0001) instead of being bare-exploded as if it were simple."""
+    Mode is never sniffed from stray files — since every Project (simple ones too) now
+    carries an ``aprx.json``, presence-sniffing would mis-classify a simple Project as
+    env-managed and never stage its binary. The three-valued answer lets one lookup
+    serve both policies the plan needs: the fail-open sweep treats ``UNDECLARED`` as
+    "not env, leave it alone", while the leak-sensitive staged-binary path treats it as
+    a hard block (so an undeclared Project is never bare-exploded as if it were simple —
+    exactly the raw-connection-string leak we guard)."""
     try:
-        return ProjectConfig.load(project_dir).is_env
+        return ENV if ProjectConfig.load(project_dir).is_env else SIMPLE
     except SystemExit:
-        return False
+        return UNDECLARED
 
 
-def _containing_src_dir(root: Path, rel: str) -> "Path | None":
-    """The ``.aprx.src`` directory that contains staged path *rel* (so a Project nested
-    in a monorepo subdirectory is found, not just one at the repo root), or ``None``."""
-    path = root / rel
-    for ancestor in (path, *path.parents):
-        if ancestor == root:
-            break
-        if is_aprx_src_dir(ancestor):
+def _containing_src_dir(src_dirs: "set[Path]", abs_path: Path) -> "Path | None":
+    """The known ``.aprx.src`` directory in *src_dirs* that contains *abs_path* (so a
+    Project nested in a monorepo subdirectory is found, not just one at the repo root),
+    or ``None``. Pure path math against the precomputed set — no filesystem probing — so
+    it is safe to call from :func:`plan_precommit`."""
+    for ancestor in (abs_path, *abs_path.parents):
+        if ancestor in src_dirs:
             return ancestor
     return None
 
 
 # --------------------------------------------------------------------------- #
-# pre-commit
+# pre-commit — decide (a pure plan) then do (the only index-touching code)
 # --------------------------------------------------------------------------- #
 
-def _refresh_env_sources(root: Path) -> set:
-    """Environment-mode projects: the .aprx is a gitignored build artifact, so
-    re-explode each working .aprx into **neutral** (tokenised) source and stage the
-    source only — the binary is never committed. Returns the set of src dirs handled
-    this way (skipped by the simple path)."""
-    handled = set()
-    for src_dir in iter_src_dirs(root):
-        project_dir = src_dir.parent
-        if not _is_env_project(project_dir):
+@dataclass(frozen=True)
+class StagePlan:
+    """What the pre-commit hook must do, expressed as data (issue 0001).
+
+    Computed by :func:`plan_precommit` with no git and no filesystem writes, then
+    executed by :func:`apply_plan`. Splitting *decide* from *do* makes the leak rules —
+    an env Project's binary is never staged; an undeclared Project blocks rather than
+    bare-explodes; nested Source dirs attribute to the right Project — assertable on the
+    value alone, with no throwaway git repo.
+
+    Attributes:
+        refresh_env:    env-mode Source dirs to re-explode (tokenised) and stage; their
+                        binary is never committed. Listed for *every* env Project,
+                        whether or not the refresh later succeeds, so a misconfigured
+                        one is still excluded from ``pack``.
+        explode_simple: staged simple-mode binaries (abs ``.aprx``) to explode faithfully
+                        (``IDENTITY``) into Source and stage.
+        unstage:        staged binary rel-paths to drop from the index — env binaries
+                        (never committed) and the just-exploded simple binaries (re-added
+                        normalised by ``pack``).
+        pack:           Source dirs to pack and stage the resulting binary — the
+                        simple-mode workflow plus merge-conflict resolution.
+        blocked:        staged binary rel-paths whose Project has no declared Mode; their
+                        presence aborts the whole commit (no bare-explode leak).
+    """
+
+    refresh_env: tuple = ()
+    explode_simple: tuple = ()
+    unstage: tuple = ()
+    pack: tuple = ()
+    blocked: tuple = ()
+
+
+def plan_precommit(root: Path, staged, src_dirs, classify) -> StagePlan:
+    """Decide the pre-commit actions as a pure value — no git, no filesystem.
+
+    Args:
+        root:     the repository top-level, used only for path arithmetic.
+        staged:   rel-paths of the staged (added/copied/modified) files.
+        src_dirs: every ``.aprx.src`` directory in the repo (absolute), discovered by
+                  the caller — passed in so this function reads nothing itself.
+        classify: ``(project_dir) -> ENV | SIMPLE | UNDECLARED``. Real callers pass
+                  :func:`_classify_project`; tests pass a plain dict lookup.
+    """
+    src_dir_set = set(src_dirs)
+
+    # Env-mode Source dirs: re-explode the working binary to neutral source, stage the
+    # source only. Collected regardless of later success so a misconfigured env Project
+    # stays out of the simple ``pack`` pass (its binary must never be committed).
+    refresh_env = sorted(
+        (sd for sd in src_dir_set if classify(sd.parent) == ENV), key=str
+    )
+    env_src = set(refresh_env)
+
+    explode_simple: list = []
+    unstage: list = []
+    blocked: list = []
+    pack: set = set()
+
+    # Staged binaries. The Mode lookup here is leak-sensitive (a staged binary becomes
+    # committed source), so an UNDECLARED Project blocks rather than bare-explodes.
+    for rel in staged:
+        if not rel.endswith(".aprx"):
             continue
-        # Marked handled even if the refresh below fails, so the simple pass never
-        # steps in and stages this env project's binary.
-        handled.add(src_dir.resolve())
-        aprx = aprx_for_src_dir(src_dir)
-        if not aprx.exists():
-            continue
-        try:
-            # Inject the env transform so source is tokenised. A bare explode() would
-            # default to IDENTITY and stage *raw* connection strings (the leak 0004
-            # left open); explode_transform is the same composition-root helper the CLI
-            # dispatch uses, so the two roots can never drift.
-            explode(str(aprx), str(src_dir), transform=explode_transform(project_dir))
-        except (SystemExit, SubstitutionError) as e:
-            # A misconfigured env project (no connections/*.json yet, or a connection
-            # string registered in none of them) must not abort the *whole* commit —
-            # this sweep runs over every project on every commit, so one bad project
-            # would block unrelated work and dump a traceback. Skipping never bare-
-            # explodes, so no raw string leaks; pre-push/`verify` is the gate that
-            # actually blocks until it's fixed.
-            print(f"  aprx-tools: skipping {src_dir.name} — {e}", file=sys.stderr)
-            continue
+        aprx_abs = root / rel
+        mode = classify(aprx_abs.parent)
+        if mode == UNDECLARED:
+            blocked.append(rel)
+        elif mode == ENV:
+            # Neutral source already refreshed above; the binary is never committed.
+            unstage.append(rel)
+        else:
+            # Simple: explode (IDENTITY is faithful), then re-derive a normalised binary
+            # from that source so the committed .aprx is stable across machines.
+            explode_simple.append(aprx_abs)
+            unstage.append(rel)
+            pack.add(src_dir_for(aprx_abs))
+
+    # Staged Source files → pack their Source dir (simple-mode workflow + merge-conflict
+    # resolution, where a developer edited the Source JSON directly). Env Source dirs are
+    # excluded — their binary is built locally, never committed.
+    for rel in staged:
+        src_top = _containing_src_dir(src_dir_set, root / rel)
+        if src_top is not None and src_top not in env_src:
+            pack.add(src_top)
+
+    return StagePlan(
+        refresh_env=tuple(refresh_env),
+        explode_simple=tuple(sorted(explode_simple, key=str)),
+        unstage=tuple(sorted(unstage)),
+        pack=tuple(sorted(pack, key=str)),
+        blocked=tuple(sorted(blocked)),
+    )
+
+
+def _refresh_env_source(root: Path, src_dir: Path) -> None:
+    """Re-explode one env Project's working binary into **neutral** (tokenised) source
+    and stage the source only — the binary is never committed.
+
+    A misconfigured env project (no ``connections/*.json`` yet, or a connection string
+    registered in none of them) must not abort the *whole* commit: this sweep runs over
+    every project on every commit, so one bad project would block unrelated work and dump
+    a traceback. Skipping never bare-explodes, so no raw string leaks; pre-push/`verify`
+    is the gate that actually blocks until it's fixed. The env transform is built from the
+    same composition-root helper the CLI dispatch uses, so the two roots can never drift."""
+    aprx = aprx_for_src_dir(src_dir)
+    if not aprx.exists():
+        return
+    try:
+        explode(str(aprx), str(src_dir), transform=explode_transform(src_dir.parent))
+    except (SystemExit, SubstitutionError) as e:
+        print(f"  aprx-tools: skipping {src_dir.name} — {e}", file=sys.stderr)
+        return
+    _git_run(root, "add", str(src_dir.relative_to(root)))
+
+
+def apply_plan(root: Path, plan: StagePlan) -> None:
+    """Execute a :class:`StagePlan` against the git index — the **only** index-touching
+    code in the pre-commit flow.
+
+    A blocked Project aborts before anything is staged: re-raise the strict
+    ``ProjectConfig.load`` error (ADR-0001, the ``aprx install`` hint) so the leak-
+    sensitive path fails with its precise diagnostic and nothing is half-committed.
+    apply_plan is the I/O side of the seam, so reproducing that exact wording here (the
+    file says *why* — missing, malformed, or no ``mode``) is cheaper than threading every
+    variant through the plan. The fallback fires only if the file became readable in the
+    sub-millisecond window between decide and do (a single-process hook) — still abort,
+    since the binary was undeclared when the plan was decided."""
+    if plan.blocked:
+        rel = plan.blocked[0]
+        ProjectConfig.load((root / rel).parent)  # raises SystemExit
+        sys.exit(f"aprx-tools: {rel}: Project mode could not be read — run `aprx install`")
+
+    for src_dir in plan.refresh_env:
+        _refresh_env_source(root, src_dir)
+
+    for aprx_abs in plan.explode_simple:
+        src_dir = src_dir_for(aprx_abs)
+        explode(str(aprx_abs), str(src_dir))
         _git_run(root, "add", str(src_dir.relative_to(root)))
-    return handled
+
+    for rel in plan.unstage:
+        _unstage(root, rel)
+
+    # Pack runs after unstage so a simple Project's just-unstaged binary is re-added
+    # here, normalised — not dropped again.
+    for src_dir in plan.pack:
+        aprx_path = aprx_for_src_dir(src_dir)
+        pack(str(src_dir), str(aprx_path))
+        _git_run(root, "add", str(aprx_path.relative_to(root)))
 
 
 def hook_pre_commit() -> None:
     root = git_root()
+    # Memoise within this one invocation: a Project commonly appears both as a discovered
+    # Source dir and as a staged binary, and ProjectConfig.load re-reads + re-parses
+    # aprx.json on every call. A fresh dict per invocation (not a module-level cache)
+    # keeps the read once-per-Project without going stale across hook runs.
+    cache: dict = {}
 
-    # Env-mode projects first (refresh tokenised src; never stage a binary).
-    handled = _refresh_env_sources(root)
+    def classify(project_dir: Path) -> str:
+        if project_dir not in cache:
+            cache[project_dir] = _classify_project(project_dir)
+        return cache[project_dir]
 
-    staged = _staged(root)
-
-    # Step 1: a staged .aprx. Mode is read **strictly** here (not via the fail-open
-    # _is_env_project): a staged binary is about to be turned into committed source, so
-    # an undeclared/unreadable Project must block the commit (ProjectConfig.load exits
-    # with the `aprx install` hint, ADR-0001) rather than be bare-exploded as if simple
-    # — that bare explode is exactly the raw-connection-string leak this issue closes.
-    #   * env mode  → the binary is never committed (its neutral src was refreshed
-    #                 above), so unstage it;
-    #   * simple    → explode (IDENTITY is faithful) and stage its src; the binary is
-    #                 unstaged here and re-added, normalised, in step 2.
-    for rel in list(staged):
-        if not rel.endswith(".aprx"):
-            continue
-        aprx_abs = root / rel
-        if ProjectConfig.load(aprx_abs.parent).is_env:
-            _unstage(root, rel)
-            continue
-        src_dir = src_dir_for(aprx_abs)
-        explode(str(aprx_abs), str(src_dir))
-        _git_run(root, "add", str(src_dir.relative_to(root)))
-        _unstage(root, rel)
-
-    staged = _staged(root)
-
-    # Step 2: staged src dirs are packed and the .aprx staged. This covers the normal
-    # simple-mode workflow and merge-conflict resolution (developer edited src JSON
-    # directly). Env-mode src dirs are skipped — their binary is built locally, not
-    # committed.
-    packed: set = set()
-    for rel in staged:
-        src_top = _containing_src_dir(root, rel)
-        if (src_top is None or src_top in packed
-                or src_top.resolve() in handled):
-            continue
-        aprx_path = aprx_for_src_dir(src_top)
-        pack(str(src_top), str(aprx_path))
-        _git_run(root, "add", str(aprx_path.relative_to(root)))
-        packed.add(src_top)
+    plan = plan_precommit(root, _staged(root), list(iter_src_dirs(root)), classify)
+    apply_plan(root, plan)
 
 
 # --------------------------------------------------------------------------- #
