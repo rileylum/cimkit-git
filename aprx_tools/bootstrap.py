@@ -4,10 +4,10 @@ per-environment connection files."""
 import json
 import re
 import sys
-import zipfile
 from pathlib import Path
 
 from . import connections as conn
+from .entry import parsed_json_entries
 from .project_config import ENV, SIMPLE, ProjectConfig, write_mode
 
 
@@ -35,16 +35,12 @@ def _suggest_key(value: str, taken: set) -> str:
 
 
 def _scan_values(aprx: Path, fields) -> set:
+    # parsed_json_entries (issue 0002) is the read-only **skip** policy: it yields only
+    # parseable JSON from the .aprx, silently dropping non-JSON and corrupt entries —
+    # the old per-entry parse-or-`continue` loop, now sharing the one Entry reader.
     values: set = set()
-    with zipfile.ZipFile(aprx) as zf:
-        for name in zf.namelist():
-            if not name.endswith(".json"):
-                continue
-            try:
-                obj = json.loads(zf.read(name))
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                continue
-            values |= conn.collect_field_values(obj, fields)
+    for entry in parsed_json_entries(aprx):
+        values |= conn.collect_field_values(entry.parsed, fields)
     return values
 
 
