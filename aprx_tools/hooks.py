@@ -6,6 +6,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from .entry import read_entries, render_pretty
 from .explode import explode
 from .pack import pack
 from .project_config import ENV, SIMPLE, ProjectConfig
@@ -35,6 +36,15 @@ def _git_run(root: Path, *args) -> None:
 
 def _staged(root: Path) -> set:
     output = _git(root, "diff", "--cached", "--name-only", "--diff-filter=ACM")
+    return set(output.splitlines()) if output else set()
+
+
+def _staged_incl_deletions(root: Path) -> set:
+    """Like :func:`_staged` but also reports staged **deletions** (no ``--diff-filter``).
+    Used only to tell whether the developer is hand-maintaining an env Project's Source
+    this commit: staging the removal of a Source entry counts, so the from-binary refresh
+    does not resurrect it (issue 0007)."""
+    output = _git(root, "diff", "--cached", "--name-only")
     return set(output.splitlines()) if output else set()
 
 
@@ -99,11 +109,22 @@ class StagePlan:
     bare-explodes; nested Source dirs attribute to the right Project — assertable on the
     value alone, with no throwaway git repo.
 
+    An env Project's Source is neutralised by exactly one of two disjoint actions, chosen
+    by whether the developer staged Source inside it this commit (issue 0007):
+
+      * ``refresh_env``    — no staged Source: the developer edited the working binary, so
+                             re-explode the binary into neutral Source (the normal env flow).
+      * ``retokenize_env`` — staged Source (a hand-resolved merge): keep that Source and
+                             only re-tokenise it in place, so a stale working binary can
+                             never clobber the resolution, while neutrality is still enforced.
+
     Attributes:
-        refresh_env:    env-mode Source dirs to re-explode (tokenised) and stage; their
-                        binary is never committed. Listed for *every* env Project,
-                        whether or not the refresh later succeeds, so a misconfigured
-                        one is still excluded from ``pack``.
+        refresh_env:    env-mode Source dirs with **no staged Source** — re-explode the
+                        working binary (tokenised) and stage it; the binary is never
+                        committed.
+        retokenize_env: env-mode Source dirs **with staged Source** — re-tokenise that
+                        staged Source in place (preserve the developer's content, enforce
+                        neutrality) instead of re-deriving it from the working binary.
         explode_simple: staged simple-mode binaries (abs ``.aprx``) to explode faithfully
                         (``IDENTITY``) into Source and stage.
         unstage:        staged binary rel-paths to drop from the index — env binaries
@@ -116,34 +137,69 @@ class StagePlan:
                         0004). Either form's parent is the Project dir, so ``apply_plan``
                         can re-raise the strict ``ProjectConfig.load`` error against it.
                         Their presence aborts the whole commit (no bare-explode/pack leak).
+
+    Neither env list ever feeds ``pack``: the staged-Source loop's ENV branch keeps every
+    env Project out of ``pack`` directly, so the env binary is never committed regardless of
+    which list a dir lands in.
     """
 
     refresh_env: tuple = ()
+    retokenize_env: tuple = ()
     explode_simple: tuple = ()
     unstage: tuple = ()
     pack: tuple = ()
     blocked: tuple = ()
 
 
-def plan_precommit(root: Path, staged, src_dirs, classify) -> StagePlan:
+def plan_precommit(
+    root: Path, staged, src_dirs, classify, staged_incl_deletions=None
+) -> StagePlan:
     """Decide the pre-commit actions as a pure value — no git, no filesystem.
 
     Args:
         root:     the repository top-level, used only for path arithmetic.
-        staged:   rel-paths of the staged (added/copied/modified) files.
+        staged:   rel-paths of the staged **added/copied/modified** files. Drives the
+                  binary-explode, pack and block decisions, which only ever act on a file
+                  that still exists (you cannot explode a deleted binary).
         src_dirs: every ``.aprx.src`` directory in the repo (absolute), discovered by
                   the caller — passed in so this function reads nothing itself.
         classify: ``(project_dir) -> ENV | SIMPLE | UNDECLARED``. Real callers pass
                   :func:`_classify_project`; tests pass a plain dict lookup.
+        staged_incl_deletions: rel-paths of *every* staged change including **deletions**,
+                  used only to decide whether the developer is hand-maintaining an env
+                  Project's Source this commit. Staging the *removal* of a Source entry (a
+                  merge resolution that drops a layer) counts — otherwise the from-binary
+                  refresh would resurrect the deleted entry (issue 0007). Defaults to
+                  *staged* when a caller has no separate deletion-inclusive set (the tests).
     """
     src_dir_set = set(src_dirs)
+    suppress_src = staged if staged_incl_deletions is None else staged_incl_deletions
 
-    # Env-mode Source dirs: re-explode the working binary to neutral source, stage the
-    # source only. Collected regardless of later success so a misconfigured env Project
-    # stays out of the simple ``pack`` pass (its binary must never be committed).
-    refresh_env = sorted(
-        (sd for sd in src_dir_set if classify(sd.parent) == ENV), key=str
-    )
+    # One containing-dir lookup per distinct staged rel-path, reused by both the
+    # refresh/retokenize split (below) and the staged-Source loop (further down) instead of
+    # re-walking the parent chain for each.
+    rel_to_src = {
+        rel: _containing_src_dir(src_dir_set, root / rel)
+        for rel in set(staged) | set(suppress_src)
+    }
+
+    # Source dirs the developer staged a change inside this commit (additions, edits, *or*
+    # deletions) — their staged Source is authoritative and must not be re-derived from the
+    # working binary.
+    staged_src_dirs = {
+        sd for rel in suppress_src if (sd := rel_to_src[rel]) is not None
+    }
+
+    # Every env Source is neutralised exactly once, but *how* depends on whether the
+    # developer staged Source inside it (issue 0007):
+    #   * no staged Source  → re-explode the working binary into neutral source (normal flow);
+    #   * staged Source      → re-tokenise that staged source in place, so a hand-resolved
+    #                          merge is preserved while neutrality is still enforced.
+    # Neither list feeds ``pack`` — the staged-Source loop's ENV branch keeps env dirs out of
+    # ``pack`` directly — so the env binary is never committed whichever branch a dir takes.
+    env_dirs = [sd for sd in src_dir_set if classify(sd.parent) == ENV]
+    refresh_env = sorted((sd for sd in env_dirs if sd not in staged_src_dirs), key=str)
+    retokenize_env = sorted((sd for sd in env_dirs if sd in staged_src_dirs), key=str)
 
     explode_simple: list = []
     unstage: list = []
@@ -177,7 +233,7 @@ def plan_precommit(root: Path, staged, src_dirs, classify) -> StagePlan:
     # is excluded (its binary is built locally, never committed), and UNDECLARED blocks
     # rather than be packed with IDENTITY into a binary of unsubstituted tokens / raw values.
     for rel in staged:
-        src_top = _containing_src_dir(src_dir_set, root / rel)
+        src_top = rel_to_src[rel]
         if src_top is None:
             continue
         mode = classify(src_top.parent)
@@ -188,6 +244,7 @@ def plan_precommit(root: Path, staged, src_dirs, classify) -> StagePlan:
 
     return StagePlan(
         refresh_env=tuple(refresh_env),
+        retokenize_env=tuple(retokenize_env),
         explode_simple=tuple(sorted(explode_simple, key=str)),
         unstage=tuple(sorted(unstage)),
         pack=tuple(sorted(pack, key=str)),
@@ -216,6 +273,46 @@ def _refresh_env_source(root: Path, src_dir: Path) -> None:
     _git_run(root, "add", str(src_dir.relative_to(root)))
 
 
+def _retokenize_staged_source(root: Path, src_dir: Path) -> None:
+    """Re-tokenise an env Project's **staged** Source in place and re-stage it — enforce
+    neutrality *without* re-deriving from the working binary (issue 0007).
+
+    This is the merge-resolution path: the developer hand-edited the tokenised Source and
+    staged it, but the working ``.aprx`` may be stale (a conflicted merge never fires the
+    post-merge rebuild). Re-exploding that stale binary would silently destroy the
+    resolution — the worst kind of edit to lose — so instead we keep the developer's Source
+    and pass each parsed entry through the same value→token transform ``explode`` uses. On
+    already-neutral Source it is a no-op; a *registered* raw connection string left behind
+    is replaced by its token, so the neutrality guarantee the from-binary refresh provided
+    is preserved.
+
+    Two-phase like ``explode`` (compute every entry, surface problems, *then* write), so an
+    unresolvable value aborts this dir before it overwrites the staged Source. An
+    unresolvable value (registered in no committed environment) or an unreadable config is
+    skipped with a hint rather than blocking the whole commit — the same fail-open posture
+    as :func:`_refresh_env_source`, leaving the pre-push ``verify`` gate to block a raw value
+    the tool cannot tokenise on its own."""
+    try:
+        transform = explode_transform(src_dir.parent)
+        payloads = []  # (name, data: str | bytes)
+        for entry in read_entries(src_dir):
+            if entry.is_parsed_json:
+                transform.apply(entry.parsed)
+            payloads.append((entry.name, render_pretty(entry)))
+        transform.raise_if_problems()
+    except (SystemExit, SubstitutionError) as e:
+        print(f"  aprx-tools: skipping {src_dir.name} — {e}", file=sys.stderr)
+        return
+
+    for name, payload in payloads:
+        target = src_dir / name
+        if isinstance(payload, str):
+            target.write_text(payload, encoding="utf-8")
+        else:
+            target.write_bytes(payload)
+    _git_run(root, "add", str(src_dir.relative_to(root)))
+
+
 def apply_plan(root: Path, plan: StagePlan) -> None:
     """Execute a :class:`StagePlan` against the git index — the **only** index-touching
     code in the pre-commit flow.
@@ -235,6 +332,9 @@ def apply_plan(root: Path, plan: StagePlan) -> None:
 
     for src_dir in plan.refresh_env:
         _refresh_env_source(root, src_dir)
+
+    for src_dir in plan.retokenize_env:
+        _retokenize_staged_source(root, src_dir)
 
     for aprx_abs in plan.explode_simple:
         src_dir = src_dir_for(aprx_abs)
@@ -265,7 +365,13 @@ def hook_pre_commit() -> None:
             cache[project_dir] = _classify_project(project_dir)
         return cache[project_dir]
 
-    plan = plan_precommit(root, _staged(root), list(iter_src_dirs(root)), classify)
+    plan = plan_precommit(
+        root,
+        _staged(root),
+        list(iter_src_dirs(root)),
+        classify,
+        staged_incl_deletions=_staged_incl_deletions(root),
+    )
     apply_plan(root, plan)
 
 
