@@ -20,12 +20,12 @@ For a simple-mode Project it asserts the committed .aprx is present (a simple-mo
 Project commits both Source and binary) and in sync with a fresh pack of its source.
 """
 
-import json
 import sys
 import tempfile
 from pathlib import Path
 
 from . import connections as conn
+from .entry import parsed_json_entries
 from .project_config import ProjectConfig
 from .util import aprx_for_src_dir, git_root, iter_src_dirs
 from .pack import pack
@@ -37,12 +37,11 @@ def _verify_env_project(src_dir: Path, cfg: ProjectConfig, env: str, problems: l
 
     referenced: set = set()
     raw: set = set()
-    for jf in sorted(src_dir.rglob("*.json")):
-        try:
-            obj = json.loads(jf.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            continue
-        keys, raws = conn.scan_tokens(obj, fields, token)
+    # parsed_json_entries (issue 0002) is the read-only **skip** policy: it yields only
+    # parseable JSON, silently dropping anything else — exactly the old per-file
+    # parse-or-`continue` loop, now sharing the one Entry reader.
+    for entry in parsed_json_entries(src_dir):
+        keys, raws = conn.scan_tokens(entry.parsed, fields, token)
         referenced |= keys
         raw |= raws
 
