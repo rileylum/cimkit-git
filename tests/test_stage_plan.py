@@ -165,6 +165,40 @@ def test_undeclared_staged_binary_blocks_and_never_explodes():
     assert plan.unstage == ()
 
 
+def test_undeclared_source_only_blocks_and_never_packs():
+    # Issue 0004: a merge resolved by editing Source inside an undeclared Project — only
+    # Source files staged, no binary — must block too, not be packed with IDENTITY into a
+    # binary of unsubstituted tokens / raw values. The Source-only twin of the binary test.
+    src = _src("x", "x.aprx.src")
+    plan = plan_precommit(
+        ROOT,
+        {"x/x.aprx.src/GISProject.json"},
+        [src],
+        _classify_from({}),                          # no declaration for x/
+    )
+    assert plan.blocked == ("x/x.aprx.src",)         # parent is the Project dir for the re-raise
+    assert plan.pack == ()
+    assert plan.explode_simple == ()
+    assert plan.unstage == ()
+
+
+def test_undeclared_many_source_files_block_as_one_entry():
+    # Several staged Source files in one undeclared Project collapse to a single Source-dir
+    # block entry (not one per file). A staged binary for the same Project is a *distinct*
+    # entry and is kept — both rel-paths share the Project dir as parent, so either drives
+    # the same abort in apply_plan; the binary/Source pair is not de-duplicated to one.
+    src = _src("x", "x.aprx.src")
+    plan = plan_precommit(
+        ROOT,
+        {"x/x.aprx", "x/x.aprx.src/a.json", "x/x.aprx.src/b.json"},
+        [src],
+        _classify_from({}),
+    )
+    assert plan.blocked == ("x/x.aprx", "x/x.aprx.src")   # files → one entry; binary distinct
+    assert plan.pack == ()
+    assert plan.explode_simple == ()
+
+
 # --------------------------------------------------------------------------- #
 # Nested monorepo — attribute each Source dir to the right Project
 # --------------------------------------------------------------------------- #

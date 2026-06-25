@@ -235,6 +235,30 @@ def test_corrupt_aprx_json_blocks_commit_without_leaking(repo, monkeypatch):
     assert not _staged_contains(repo, p.value)           # raw value never reached source
 
 
+def test_corrupt_aprx_json_blocks_source_only_commit(repo, monkeypatch):
+    # Issue 0004: the merge-resolution path — a developer edits Source inside the env
+    # Project and stages the Source only (never the binary). With aprx.json corrupt the
+    # Project is undeclared, so this path must block too. The Source-only twin of the
+    # binary-path block above.
+    #
+    # The load-bearing guard is that **no derived binary is staged**: a regression that
+    # treated the undeclared Project as simple would IDENTITY-pack the staged Source and
+    # stage `map/map.aprx` here — exactly the committed-binary leak ADR-0001 forbids for an
+    # undeclared Project. (A raw-string assertion would be vacuous on this path: the block
+    # aborts before any pack, and IDENTITY-packing tokenised Source re-materialises no raw
+    # value anyway.) Staged Source the developer added by hand is theirs; blocking the
+    # commit means none of it is ever committed.
+    p = _make_env_project(repo, "map")
+    (p.proj / "aprx.json").write_text("{ this is not valid json")
+    _git(repo, "add", "map/map.aprx.src")                # Source only — binary unstaged
+    monkeypatch.chdir(repo)
+
+    with pytest.raises(SystemExit):
+        hook_pre_commit()
+
+    assert "map/map.aprx" not in _staged_names(repo)     # no derived binary staged → no leak
+
+
 def test_misconfigured_env_project_does_not_block_unrelated_commit(repo, monkeypatch, capsys):
     # An env Project declared mode:env but with no connections/*.json yet can't tokenise;
     # the env-refresh sweep runs on every commit, so it must skip that project (with a

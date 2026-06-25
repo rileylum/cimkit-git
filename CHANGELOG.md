@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- The strict undeclared-Project guard (ADR-0001) now fires on the **Source-only**
+  pre-commit path too, not just on a staged `.aprx` binary. Resolving a merge by editing
+  files inside an env Project's `.aprx.src/` and staging the Source only (never the
+  binary) used to slip past the guard and pack a derived binary — full of unsubstituted
+  tokens, or re-materialised raw connection strings — for a Project that should have a
+  blocked or no-committed-binary outcome. Such a commit is now blocked with the same
+  `aprx install` diagnostic the binary path already emits. This tightens behaviour toward
+  ADR-0001; it does not change simple-mode Source-only commits (merge-conflict
+  resolution still packs and stages).
+
 ## [0.2.1] - 2026-06-25
 
 ### Fixed
