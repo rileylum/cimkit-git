@@ -80,9 +80,11 @@ def test_env_staged_binary_is_unstaged_not_exploded():
     assert plan.pack == ()
 
 
-def test_staged_source_inside_env_dir_is_not_packed():
-    # A staged file inside an env Source dir must not trigger a pack — the env binary is
-    # built locally, never committed.
+def test_staged_source_inside_env_dir_retokenizes_and_never_touches_the_binary():
+    # Issue 0007: staging Source by hand inside an env dir routes it to retokenize_env, NOT
+    # refresh_env — the developer's staged Source is preserved (re-tokenised in place), never
+    # re-derived from the possibly-stale working binary. And the env binary is in NO stage
+    # action: not packed, not exploded, not unstaged — so neither env path can commit it.
     src = _src("map", "map.aprx.src")
     plan = plan_precommit(
         ROOT,
@@ -90,23 +92,44 @@ def test_staged_source_inside_env_dir_is_not_packed():
         [src],
         _classify_from({_src("map"): ENV}),
     )
-    assert plan.pack == ()
-    assert plan.refresh_env == (src,)
+    assert plan.retokenize_env == (src,)  # staged Source → re-tokenise in place...
+    assert plan.refresh_env == ()         # ...not re-derived from the binary
+    assert plan.pack == ()                # binary never committed by the simple pass
+    assert plan.explode_simple == ()
+    assert plan.unstage == ()
 
 
-def test_misconfigured_env_still_excluded_from_pack():
-    # An env Source dir is listed for refresh whether or not the refresh will later
-    # succeed, *and* excluded from pack — so a misconfigured env Project can never have
-    # its binary committed by the simple pass.
+def test_env_source_with_no_staged_source_is_refreshed_from_binary():
+    # Issue 0007 only diverts to retokenize_env when the developer staged Source. The normal
+    # env workflow (developer edits the binary, stages nothing in the `.src/`) must still
+    # refresh from the binary: an unrelated staged file does not count as staging this
+    # Project's Source.
     src = _src("map", "map.aprx.src")
     plan = plan_precommit(
         ROOT,
-        {"map/map.aprx.src/CIMPATH/x.json"},
+        {"notes.txt"},                    # staged, but not inside the env Source dir
         [src],
         _classify_from({_src("map"): ENV}),
     )
-    assert src in plan.refresh_env
-    assert plan.pack == ()
+    assert plan.refresh_env == (src,)     # no staged Source here → refresh runs as before
+    assert plan.retokenize_env == ()
+
+
+def test_staged_env_source_deletion_diverts_to_retokenize():
+    # Issue 0007 (the delete path): a developer stages the *removal* of a Source entry as
+    # part of a merge resolution and nothing else. That deletion arrives only via the
+    # deletion-inclusive set (the ACM `staged` omits it), and it must still divert the dir to
+    # retokenize_env — otherwise the from-binary refresh would resurrect the deleted entry.
+    src = _src("map", "map.aprx.src")
+    plan = plan_precommit(
+        ROOT,
+        set(),                                        # ACM: nothing (a pure deletion)
+        [src],
+        _classify_from({_src("map"): ENV}),
+        staged_incl_deletions={"map/map.aprx.src/cimlayers/Old.json"},
+    )
+    assert plan.retokenize_env == (src,)  # the staged deletion is honoured...
+    assert plan.refresh_env == ()         # ...not undone by a re-explode of the binary
 
 
 # --------------------------------------------------------------------------- #

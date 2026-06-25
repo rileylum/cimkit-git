@@ -137,6 +137,82 @@ def test_env_precommit_never_stages_the_binary(repo, monkeypatch):
     assert any(n.startswith("map/map.aprx.src/") for n in _staged_names(repo))
 
 
+def test_env_precommit_preserves_hand_edited_staged_source(repo, monkeypatch):
+    # Issue 0007 — the merge-resolution path. A developer resolves a conflict by hand-editing
+    # the tokenised Source inside an env Project and stages the Source ONLY (never the binary —
+    # the env workflow). The working .aprx is stale relative to that edit: a conflicted merge
+    # never fires post-merge, so build_working_copies never rebuilt the binary from the merged
+    # Source. pre-commit's env-refresh must NOT re-explode the stale binary over the staged
+    # Source — that would silently destroy the resolution and commit source re-derived from the
+    # stale binary instead. The developer's staged edit must be what gets committed.
+    p = _make_env_project(repo, "map")
+    monkeypatch.chdir(repo)
+
+    # The hand resolution: an edit present in the staged Source but NOT in the working binary
+    # (which still holds only the original explode). If the refresh re-explodes the binary,
+    # this marker disappears — exactly the silent loss 0007 guards.
+    marker = "RESOLVED-BY-HAND-0007"
+    gis = p.src / "GISProject.json"
+    data = json.loads(gis.read_text())
+    data["__resolved_marker__"] = marker
+    gis.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    _git(repo, "add", "map/map.aprx.src")            # Source only — binary never staged
+
+    hook_pre_commit()
+
+    staged = _staged_names(repo)
+    assert _staged_contains(repo, marker)            # the resolution survived — not clobbered
+    # The 0004/leak + binary-lifecycle guarantees still hold on this path:
+    assert not _staged_contains(repo, p.value)       # no raw connection string in staged source
+    assert "map/map.aprx" not in staged              # the env binary is still never committed
+    assert any(n.startswith("map/map.aprx.src/") for n in staged)
+
+
+def test_env_precommit_retokenizes_raw_value_left_in_staged_source(repo, monkeypatch):
+    # Issue 0007 leak guarantee: preserving the developer's staged Source must not weaken the
+    # neutrality the old from-binary refresh enforced. If a hand resolution leaves a *raw*
+    # connection string (registered in a committed environment) in the staged Source, the
+    # in-place re-tokenise must replace it with its @@token@@ before commit — the raw value
+    # must never reach the index. (A naive "just trust the staged Source" fix would commit it.)
+    p = _make_env_project(repo, "map")
+    monkeypatch.chdir(repo)
+
+    # Plant raw connection strings into the Source as a botched resolution would: a *bare*
+    # explode of the working binary (no tokenising transform) writes the raw value into the
+    # Source, correctly JSON-escaped. Stage that.
+    explode(str(p.aprx), str(p.src))
+    assert not any("@@main@@" in f.read_text() for f in p.src.rglob("*.json"))  # raw, not neutral
+    _git(repo, "add", "map/map.aprx.src")
+
+    hook_pre_commit()
+
+    assert _staged_contains(repo, "@@main@@")         # re-tokenised back to the placeholder
+    assert not _staged_contains(repo, p.value)        # the raw value never reached the index
+    assert "map/map.aprx" not in _staged_names(repo)  # binary still never committed
+
+
+def test_env_precommit_preserves_staged_source_deletion(repo, monkeypatch):
+    # Issue 0007 (the delete path): a developer stages the *removal* of a Source entry during a
+    # merge resolution. The from-binary refresh would resurrect it (the working .aprx still
+    # contains the entry); the in-place re-tokenise must leave the deletion intact. A pure
+    # deletion is invisible to the ACM `staged` set — only the deletion-inclusive signal
+    # diverts the dir to retokenize_env — so this is the exact gap a naive fix would miss.
+    _make_env_project(repo, "map")
+    monkeypatch.chdir(repo)
+    _git(repo, "add", "map/map.aprx.src")
+    _git(repo, "commit", "-m", "seed neutral source")  # track a real binary-derived entry
+
+    victim = "map/map.aprx.src/map/test_table.json"    # present in Source AND the working .aprx
+    assert (repo / victim).exists()
+    _git(repo, "rm", victim)                            # stage the deletion only (no ACM change)
+
+    hook_pre_commit()
+
+    assert not (repo / victim).exists()                # not resurrected from the stale binary
+    deleted = _git(repo, "diff", "--cached", "--name-only", "--diff-filter=D").stdout.split()
+    assert "map/map.aprx.src/map/test_table.json" in deleted   # the deletion is what's committed
+
+
 # --------------------------------------------------------------------------- #
 # pre-commit — simple mode (not mis-detected as env)
 # --------------------------------------------------------------------------- #
