@@ -71,3 +71,25 @@ def test_env_mode_without_connections_does_not_crash(env_project, explode_env, c
         (env_project.dir / "connections" / name).unlink()
     build_working_copies(src_dir=str(src))          # must not raise
     assert "skipping" in capsys.readouterr().err
+
+
+def test_unreadable_connections_does_not_crash_the_hook(env_project, explode_env, deny_reading, capsys):
+    # Issue 0009: a present-but-unreadable connections file (here local.json, the default
+    # resolution) makes load_connections raise OSError. load_connections now converts that
+    # to a SystemExit the hook already catches, so the never-blocking rebuild skips rather
+    # than crashing — the same posture as its existing missing-key/no-connections skips.
+    # deny_reading is applied *after* explode_env so setup's own reads succeed.
+    src = explode_env(env_project.aprx)
+    deny_reading(env_project.dir / "local.json")
+    build_working_copies(src_dir=str(src))          # must not raise
+    assert "skipping" in capsys.readouterr().err
+
+
+def test_non_utf8_connections_does_not_crash_the_hook(env_project, explode_env, capsys):
+    # Issue 0009: a non-UTF-8 connections file raises UnicodeDecodeError (a ValueError, not
+    # an OSError) — the case the pre-0009 catch missed entirely. load_connections converts
+    # it to a SystemExit, so the rebuild skips instead of crashing the post-* hook.
+    src = explode_env(env_project.aprx)
+    (env_project.dir / "local.json").write_bytes(b"\xff\xfe{ not utf-8 ")
+    build_working_copies(src_dir=str(src))          # must not raise
+    assert "skipping" in capsys.readouterr().err

@@ -26,6 +26,21 @@ def test_verify_fails_when_env_missing_key(env_project, explode_env):
     assert verify(str(_src(env_project))) == 1
 
 
+def test_verify_malformed_connections_file_is_collected_not_aborting(
+    env_project, explode_env, capsys
+):
+    # Issue 0009: a hand-broken / merge-conflicted connections file makes
+    # load_connections hard-exit (pre-0009 it raised an uncaught JSONDecodeError that
+    # crashed the gate). The per-project catch now collects it as one project's problem
+    # — verify still returns its FAILED exit code with a diagnostic, not a traceback.
+    explode_env(env_project.aprx)
+    (env_project.dir / "connections" / "uat.json").write_text("{ not valid json")
+    assert verify(str(_src(env_project))) == 1
+    err = capsys.readouterr().err
+    assert "map.aprx.src" in err          # the offending project is named
+    assert "valid JSON" in err            # ...with the malformed-content diagnostic
+
+
 def test_verify_env_missing_binary_is_fine(env_project, explode_env):
     """Scope guard: in environment mode the working `.aprx` is a gitignored build
     artifact (PRD story 18 / ADR-0001), regenerated per environment from neutral

@@ -142,6 +142,59 @@ def test_reverse_map_value_collision_errors(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# Engine: load_connections fails gracefully on an unreadable file (issue 0009)
+#
+# load_connections is the engine's one file-read boundary; an uncaught OSError /
+# UnicodeDecodeError / JSONDecodeError here would propagate out of build_reverse_map,
+# explode_transform and the pre-commit sweep — crashing the whole commit one read site
+# over from 0005's aprx.json fix. Each is converted to a *distinct* sys.exit, the same
+# three-way split ProjectConfig.load gives aprx.json, so the user knows whether it is a
+# permissions/IO, an encoding, or a content problem.
+# --------------------------------------------------------------------------- #
+
+def test_load_unreadable_connections_reports_io_not_content(tmp_path, deny_reading):
+    # Present but unreadable (chmod 000, a transient I/O error). Denied via monkeypatch
+    # (not chmod) so it holds even when the suite runs as root, where the mode is ignored.
+    path = tmp_path / "dev.json"
+    path.write_text(json.dumps({"main": "DEV"}), encoding="utf-8")
+    deny_reading(path)
+
+    with pytest.raises(SystemExit) as exc:
+        conn.load_connections(path)
+    msg = str(exc.value)
+    assert str(path) in msg
+    assert "could not be read" in msg          # an I/O problem...
+    assert "permission" in msg.lower()
+    assert "JSON" not in msg                    # ...not the malformed-content diagnostic
+
+
+def test_load_non_utf8_connections_reports_encoding_not_io(tmp_path):
+    # A non-UTF-8 connections file (saved UTF-16/Latin-1, or a stray 0xFF byte) makes
+    # read_text raise UnicodeDecodeError — a ValueError, *not* an OSError — which would
+    # sail past both the OSError and JSONDecodeError guards and crash the sweep.
+    path = tmp_path / "dev.json"
+    path.write_bytes(b"\xff\xfe{ not utf-8 ")
+    with pytest.raises(SystemExit) as exc:
+        conn.load_connections(path)
+    msg = str(exc.value)
+    assert str(path) in msg
+    assert "UTF-8" in msg
+    assert "could not be read" not in msg       # distinct from the I/O diagnostic
+
+
+def test_load_malformed_connections_reports_json(tmp_path):
+    # A hand-broken / merge-conflicted connections file must fail with our diagnostic,
+    # not a raw json.JSONDecodeError traceback.
+    path = tmp_path / "dev.json"
+    path.write_text("{not: valid", encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        conn.load_connections(path)
+    msg = str(exc.value)
+    assert str(path) in msg
+    assert "valid JSON" in msg
+
+
+# --------------------------------------------------------------------------- #
 # Engine: resolution precedence
 # --------------------------------------------------------------------------- #
 

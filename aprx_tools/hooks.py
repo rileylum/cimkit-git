@@ -1,6 +1,5 @@
 """Logic executed by the installed git hooks."""
 
-import json
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -451,10 +450,12 @@ def build_working_copies(root: Path = None, src_dir: str = None, env: str = None
         try:
             transform = pack_transform(project_dir, env=env)
             pack(str(sd), str(aprx_output_for(sd)), transform=transform)
-        except (SystemExit, SubstitutionError, json.JSONDecodeError) as e:
-            # JSONDecodeError covers a hand-broken connections/local.json (load_connections
-            # parses it raw): these post-* hooks are documented never to block, so a
-            # malformed file downgrades to a skip instead of crashing the rebuild.
+        except (SystemExit, SubstitutionError) as e:
+            # An unreadable / non-UTF-8 / malformed connections file (local.json or a
+            # connections/*.json) now arrives as a SystemExit from load_connections (issue
+            # 0009), not a raw OSError/JSONDecodeError that would crash a hook documented
+            # never to block. SubstitutionError covers a resolvable-but-incomplete env
+            # (a missing token key). Either way these post-* hooks downgrade to a skip.
             print(f"  aprx-tools: skipping {sd.name} — {e}", file=sys.stderr)
 
 

@@ -113,17 +113,21 @@ def verify(src_dir: str = None, env: str = None) -> int:
         # adjacent to the source, not guessed. A Project with no declared Mode is a
         # failure carrying the "run `aprx install`" guidance — but as the single
         # repo-wide CI gate, verify must check *every* project and report all of them,
-        # so an un-migrated project becomes one collected problem rather than a
-        # `ProjectConfig.load` hard-exit that aborts the loop and masks its siblings.
+        # so an un-migrated project becomes one collected problem rather than a hard-exit
+        # that aborts the loop and masks its siblings. The catch wraps the whole
+        # per-project body, not just `ProjectConfig.load`: an unreadable / non-UTF-8 /
+        # malformed connections file now hard-exits from `load_connections` too (issue
+        # 0009), so it must be collected as one project's problem rather than abort the
+        # repo-wide gate before its siblings are checked.
         try:
             cfg = ProjectConfig.load(sd.parent)
+            if cfg.is_env:
+                _verify_env_project(sd, cfg, env, problems)
+            else:
+                _verify_simple_project(sd, problems)
         except SystemExit as e:
             problems.append(f"{sd.name}: {e.code}")
             continue
-        if cfg.is_env:
-            _verify_env_project(sd, cfg, env, problems)
-        else:
-            _verify_simple_project(sd, problems)
 
     if problems:
         print(f"aprx verify: FAILED ({len(problems)} problem(s))", file=sys.stderr)
