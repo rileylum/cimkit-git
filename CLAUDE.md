@@ -47,9 +47,16 @@ compare.py:  normalises both sides and unified-diffs them (works on files OR dir
 
 - **`hooks.py`** is the logic the installed git hooks call via `python3 -m aprx_tools hook <name>`.
   `hook_pre_commit` has two layers worth understanding before editing:
-  - **Env-managed projects first** (`_refresh_env_sources`): for each existing `.aprx.src/`
-    that sits in a connection-substitution project, re-explode the (gitignored) working
-    `.aprx` into tokenised source and stage the source only — the binary is never committed.
+  - **Env-managed projects first**: for each existing `.aprx.src/` that sits in a
+    connection-substitution project, stage neutral (tokenised) source only — the binary is
+    never committed. *How* the source is neutralised depends on whether the developer staged
+    Source inside that project this commit (issue 0007): with **no staged Source** it is
+    re-exploded from the (gitignored) working `.aprx` (`_refresh_env_source` — the normal
+    flow, where the developer edited the binary); with **staged Source** (a hand-resolved
+    merge) it is instead re-tokenised *in place* (`_retokenize_staged_source`), preserving the
+    developer's content rather than re-deriving it from a possibly-stale binary that would
+    silently clobber the resolution. The staged-Source signal counts deletions too, so a merge
+    that drops an entry is not resurrected from the binary.
   - **Simple projects** (the original two-pass flow): (1) any staged `.aprx` is exploded,
     its `.src/` staged, and the binary unstaged; (2) any staged file inside a `.aprx.src/`
     triggers a repack + re-stage of the `.aprx`. Pass 2 runs independently so it also
