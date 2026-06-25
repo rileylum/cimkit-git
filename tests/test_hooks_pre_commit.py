@@ -96,6 +96,18 @@ def _make_simple_project(repo: Path, name: str) -> SimpleNamespace:
     return SimpleNamespace(proj=proj, aprx=aprx)
 
 
+def _make_undeclared_project(repo: Path, name: str) -> SimpleNamespace:
+    """A Project with **no** aprx.json — its Mode is undeclared, so the pre-commit hook
+    must block it (ADR-0001) rather than guess simple or env. The binary and a source
+    tree exist (a developer who never ran `aprx install`)."""
+    proj = repo / name
+    proj.mkdir()
+    aprx = proj / f"{name}.aprx"
+    shutil.copy(SIMPLE_APRX, aprx)
+    src = explode(str(aprx), str(proj / f"{name}.aprx.src"))
+    return SimpleNamespace(proj=proj, aprx=aprx, src=Path(src))
+
+
 def _staged_names(repo: Path) -> set:
     out = _git(repo, "diff", "--cached", "--name-only").stdout
     return set(out.splitlines()) if out.strip() else set()
@@ -355,6 +367,57 @@ def test_unreadable_aprx_json_blocks_binary_commit_without_leaking(repo, deny_re
     # `git grep --cached` can't see it; a regression treating undeclared-as-simple would
     # explode the binary and `git add` the source dir, which this catches.)
     assert not any(n.startswith("map/map.aprx.src/") for n in _staged_names(repo))
+
+
+def test_two_undeclared_projects_are_both_named_in_one_block(repo, monkeypatch):
+    # Issue 0008: a single commit staging two undeclared Projects must name BOTH in one
+    # run — each with its `aprx install` hint — instead of reporting only the
+    # alphabetically-first and forcing a fix-and-recommit drip. The plan already collects
+    # every offending Project; this guards that the reporting step no longer throws the
+    # rest away.
+    _make_undeclared_project(repo, "alpha")
+    _make_undeclared_project(repo, "bravo")
+    _git(repo, "add", "alpha/alpha.aprx", "bravo/bravo.aprx")
+    monkeypatch.chdir(repo)
+
+    with pytest.raises(SystemExit) as exc:
+        hook_pre_commit()
+
+    msg = str(exc.value)
+    assert "alpha" in msg and "bravo" in msg                 # both Projects named
+    assert msg.count("aprx install") == 2                    # each carries its own hint
+    # Nothing was staged for either Project — the block aborts before any explode/pack.
+    assert not any(n.startswith("alpha/alpha.aprx.src/") for n in _staged_names(repo))
+    assert not any(n.startswith("bravo/bravo.aprx.src/") for n in _staged_names(repo))
+
+
+def test_undeclared_project_staged_both_ways_is_named_once(repo, monkeypatch):
+    # Issue 0008: a Project staged as both a binary and a Source dir lands in `blocked`
+    # twice (distinct rel-paths), but de-duplicating to the Project dir means it is named
+    # exactly once — not the same install hint printed twice for one Project.
+    _make_undeclared_project(repo, "alpha")
+    _git(repo, "add", "alpha/alpha.aprx", "alpha/alpha.aprx.src")
+    monkeypatch.chdir(repo)
+
+    with pytest.raises(SystemExit) as exc:
+        hook_pre_commit()
+
+    assert str(exc.value).count("aprx install") == 1         # one Project → one message
+
+
+def test_single_undeclared_project_blocks_with_one_message(repo, monkeypatch):
+    # Issue 0008 no-regression: the common single-Project case still aborts with exactly
+    # one clear message naming that Project and its hint.
+    _make_undeclared_project(repo, "solo")
+    _git(repo, "add", "solo/solo.aprx")
+    monkeypatch.chdir(repo)
+
+    with pytest.raises(SystemExit) as exc:
+        hook_pre_commit()
+
+    msg = str(exc.value)
+    assert "solo" in msg
+    assert msg.count("aprx install") == 1
 
 
 def test_unreadable_aprx_json_does_not_block_unrelated_commit(repo, deny_reading, monkeypatch):
