@@ -335,6 +335,45 @@ def test_corrupt_aprx_json_blocks_source_only_commit(repo, monkeypatch):
     assert "map/map.aprx" not in _staged_names(repo)     # no derived binary staged → no leak
 
 
+def test_unreadable_aprx_json_blocks_binary_commit_without_leaking(repo, deny_reading, monkeypatch):
+    # Issue 0005: an unreadable aprx.json (permissions/IO, not corrupt content) on the
+    # leak-sensitive staged-binary path must block the commit — never bare-explode as if
+    # simple — exactly as the malformed-content twin does. The whole-repo crash an uncaught
+    # OSError would cause is downgraded to this per-Project block.
+    p = _make_env_project(repo, "map")
+    _git(repo, "add", "map/map.aprx")
+    deny_reading(p.proj / "aprx.json")
+    monkeypatch.chdir(repo)
+
+    with pytest.raises(SystemExit) as exc:
+        hook_pre_commit()
+
+    assert "could not be read" in str(exc.value)         # the IO-specific diagnostic
+    # The real leak guard: the block aborts *before* any bare-explode, so no Source was
+    # derived and staged for the Project. (Asserting on the raw value alone is vacuous
+    # here — on this path it lives only compressed inside the staged .aprx zip, where
+    # `git grep --cached` can't see it; a regression treating undeclared-as-simple would
+    # explode the binary and `git add` the source dir, which this catches.)
+    assert not any(n.startswith("map/map.aprx.src/") for n in _staged_names(repo))
+
+
+def test_unreadable_aprx_json_does_not_block_unrelated_commit(repo, deny_reading, monkeypatch):
+    # Issue 0005, the fail-open twin: the env-refresh sweep classifies the Project with the
+    # unreadable config as UNDECLARED (not env), so it is skipped rather than crashing the
+    # hook — an unrelated staged change still commits. This is the property that turns a
+    # whole-repo commit blocker into a per-Project skip.
+    p = _make_env_project(repo, "map")
+    (repo / "notes.txt").write_text("unrelated change")
+    _git(repo, "add", "notes.txt")
+    deny_reading(p.proj / "aprx.json")
+    monkeypatch.chdir(repo)
+
+    hook_pre_commit()                                    # must not raise
+
+    assert "notes.txt" in _staged_names(repo)            # the real change still committed
+    assert not _staged_contains(repo, p.value)           # and the env binary was not staged
+
+
 def test_misconfigured_env_project_does_not_block_unrelated_commit(repo, monkeypatch, capsys):
     # An env Project declared mode:env but with no connections/*.json yet can't tokenise;
     # the env-refresh sweep runs on every commit, so it must skip that project (with a

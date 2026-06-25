@@ -16,6 +16,29 @@ def simple_aprx() -> Path:
 
 
 @pytest.fixture
+def deny_reading(monkeypatch):
+    """Make exactly one file raise ``PermissionError`` on read, leaving every other file
+    readable — a root-safe stand-in for ``chmod 000`` (CI may run as root, where the file
+    mode is ignored). Models issue 0005's "present but unreadable ``aprx.json``".
+
+    Matches on the **resolved** path, so it denies only the named Project's config and
+    never a sibling's (the hook resolves a Project dir through ``git_root``, so a basename
+    match would also block other Projects and could mask a per-Project regression)."""
+    def _deny(target) -> None:
+        target = Path(target).resolve()
+        real_read_text = Path.read_text
+
+        def guarded(self, *args, **kwargs):
+            if self.resolve() == target:
+                raise PermissionError(13, "Permission denied")
+            return real_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", guarded)
+
+    return _deny
+
+
+@pytest.fixture
 def exploded(tmp_path, simple_aprx) -> Path:
     """Exploded simple.aprx — reused by pack and compare tests."""
     from aprx_tools.explode import explode
