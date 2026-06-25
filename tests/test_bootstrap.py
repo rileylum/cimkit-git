@@ -121,6 +121,74 @@ def test_init_preserves_fields_token_from_modeless_legacy_config(multi_conn_aprx
     assert cfg["fields"] == ["workspaceConnectionString"]
 
 
+# --------------------------------------------------------------------------- #
+# init reads an existing aprx.json before a ProjectConfig can exist; that bootstrap
+# read must fail-graceful too (issue 0010). Unlike install — which swallows and writes
+# a fresh config — init is a user-invoked one-shot, so it routes through
+# conn.read_json_or_exit for the same three-way directed diagnostic the resolution
+# path (0005) and the connections files (0009) already give.
+# --------------------------------------------------------------------------- #
+
+def test_init_unreadable_config_reports_io_not_content(multi_conn_aprx, deny_reading):
+    # Present but unreadable (chmod 000 / transient I/O). Denied via monkeypatch so it
+    # holds even as root, where the file mode is ignored.
+    cfg_path = multi_conn_aprx.dir / "aprx.json"
+    cfg_path.write_text(json.dumps({"mode": "env"}), encoding="utf-8")
+    deny_reading(cfg_path)
+
+    with pytest.raises(SystemExit) as exc:
+        connections_init(str(multi_conn_aprx.aprx))
+    msg = str(exc.value)
+    assert str(cfg_path) in msg
+    assert "could not be read" in msg          # an I/O problem...
+    assert "permission" in msg.lower()
+    assert "valid JSON" not in msg             # ...not the malformed-content diagnostic
+
+
+def test_init_non_utf8_config_reports_encoding(multi_conn_aprx):
+    # A non-UTF-8 aprx.json makes read_text raise UnicodeDecodeError — a ValueError, not
+    # an OSError — which the bare json.loads(read_text()) would let crash. Routed through
+    # read_json_or_exit, it becomes the distinct encoding diagnostic.
+    cfg_path = multi_conn_aprx.dir / "aprx.json"
+    cfg_path.write_bytes(b"\xff\xfe{ not utf-8 ")
+
+    with pytest.raises(SystemExit) as exc:
+        connections_init(str(multi_conn_aprx.aprx))
+    msg = str(exc.value)
+    assert "UTF-8" in msg
+    assert "could not be read" not in msg      # distinct from the I/O message
+    assert "valid JSON" not in msg             # distinct from the malformed-JSON message
+
+
+def test_init_malformed_config_reports_json(multi_conn_aprx):
+    # A hand-broken / merge-conflicted aprx.json fails with our diagnostic, not a raw
+    # json.JSONDecodeError traceback.
+    cfg_path = multi_conn_aprx.dir / "aprx.json"
+    cfg_path.write_text("{ not valid json", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc:
+        connections_init(str(multi_conn_aprx.aprx))
+    msg = str(exc.value)
+    assert "valid JSON" in msg
+    assert "could not be read" not in msg
+    assert "UTF-8" not in msg
+
+
+@pytest.mark.parametrize("payload", ["[]", "null", '"simple"', "42"])
+def test_init_non_object_config_reports_shape(multi_conn_aprx, payload):
+    # read_json_or_exit deliberately does no shape check; init must pair it with one
+    # (as load_connections does) so a valid-JSON-but-non-object aprx.json fails with a
+    # directed message instead of `existing.get("mode")` raising a raw AttributeError.
+    cfg_path = multi_conn_aprx.dir / "aprx.json"
+    cfg_path.write_text(payload, encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc:
+        connections_init(str(multi_conn_aprx.aprx))
+    msg = str(exc.value)
+    assert str(cfg_path) in msg
+    assert "JSON object" in msg
+
+
 def test_init_preserves_a_declared_env_config(multi_conn_aprx):
     # Compose with `aprx install --mode env`: when env mode (and custom token) is
     # already declared, init sources fields/token from ProjectConfig and keeps them
