@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from aprx_tools.connections import CONFIG_FILENAME
-from aprx_tools.install import install, install_hooks, MARKER
+from aprx_tools.install import _read_config, install, install_hooks, MARKER
 from aprx_tools.util import git_root
 
 
@@ -178,6 +178,65 @@ def test_outside_git_repo_writes_no_config(tmp_path):
     with pytest.raises(SystemExit):
         install(config_dir=tmp_path, mode="env")
     assert not (tmp_path / CONFIG_FILENAME).exists()
+
+
+def test_read_config_missing_is_fresh_install(git_repo):
+    # The one case that is *not* an error: an absent aprx.json is the fresh-install
+    # signal, (None, {}) — decide a mode and write a new config. A present-but-broken
+    # file (below) must NOT share this return, or install would clobber it.
+    assert _read_config(git_repo / CONFIG_FILENAME) == (None, {})
+
+
+def test_read_config_aborts_on_non_utf8(git_repo):
+    # A present non-UTF-8 aprx.json (UTF-16/Latin-1, a stray 0xFF byte) is reported, not
+    # swallowed into (None, {}): swallowing would let install overwrite a committed config
+    # it merely failed to decode, dropping the developer's fields/token. read_json_or_exit
+    # gives the distinct encoding diagnostic; install is a one-shot, so aborting is safe.
+    cfg_path = git_repo / CONFIG_FILENAME
+    cfg_path.write_bytes(b"\xff\xfe{ not utf-8 ")
+    with pytest.raises(SystemExit) as exc:
+        _read_config(cfg_path)
+    assert "UTF-8" in str(exc.value)
+
+
+def test_read_config_aborts_on_unreadable(git_repo, deny_reading):
+    # Present but unreadable (permissions / transient I/O). Denied via monkeypatch so it
+    # holds even as root. The nastiest swallow case: a transient error on a *healthy*
+    # file would otherwise clobber it down to a bare mode — so it must report instead.
+    cfg_path = git_repo / CONFIG_FILENAME
+    cfg_path.write_text(json.dumps({"mode": "env"}), encoding="utf-8")
+    deny_reading(cfg_path)
+    with pytest.raises(SystemExit) as exc:
+        _read_config(cfg_path)
+    msg = str(exc.value)
+    assert "could not be read" in msg
+    assert "permission" in msg.lower()
+
+
+def test_read_config_aborts_on_non_object(git_repo):
+    # Valid JSON that is not an object ([], null, a bare string) can't carry a mode and
+    # would crash cfg.get("mode"); reported with a directed shape message instead.
+    (git_repo / CONFIG_FILENAME).write_text("[]", encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        _read_config(git_repo / CONFIG_FILENAME)
+    assert "JSON object" in str(exc.value)
+
+
+def test_install_against_broken_config_aborts_without_clobbering(git_repo):
+    # The core fix: install against a Project whose committed aprx.json is broken
+    # (here non-UTF-8, carrying recoverable fields/token) must abort with a directed
+    # message and leave the file byte-for-byte intact — never silently overwrite it
+    # with a bare {"mode": ...}, which would destroy the fields/token a `git checkout`
+    # could otherwise still recover.
+    cfg_path = git_repo / CONFIG_FILENAME
+    original = b"\xff\xfe" + json.dumps(
+        {"mode": "env", "fields": ["ws"], "token": "T-{key}"}
+    ).encode("utf-8")
+    cfg_path.write_bytes(original)
+    with pytest.raises(SystemExit) as exc:
+        install(git_repo, config_dir=git_repo, mode="env", prompt=_no_prompt)
+    assert "UTF-8" in str(exc.value)
+    assert cfg_path.read_bytes() == original   # left untouched, not clobbered
 
 
 def test_main_install_mode_flag(git_repo, monkeypatch):

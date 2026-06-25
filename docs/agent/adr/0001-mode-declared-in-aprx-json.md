@@ -38,3 +38,14 @@ connection string), and flags only refine *which* environment's values `pack` su
   opt-in record.
 - `aprx install` with no TTY and no existing config defaults to simple mode and warns;
   `--mode simple|env` bypasses the prompt everywhere.
+- **Decide-and-write applies only to an *absent* `aprx.json`.** A *missing* file is the
+  fresh-install case install exists to fix: it decides a mode and writes a new config. A
+  file that is *present but unreadable / non-UTF-8 / malformed / not a JSON object* is
+  **not** treated as "no mode on record" — install reports a directed error (a hard exit
+  naming the read/decode/parse failure) and leaves the file untouched, rather than
+  overwriting a committed config it merely failed to *parse* and silently discarding the
+  developer's `fields`/`token` (you cannot preserve fields you cannot read). Both the
+  resolution path (`ProjectConfig.load`) and the two bootstrap-time reads (`install`,
+  `connections init`) route the read/decode/parse through one shared loader so a broken
+  `aprx.json` is reported identically everywhere; only the *absent* case differs (the
+  bootstrap commands create the file, the resolution path errors directing to `install`).

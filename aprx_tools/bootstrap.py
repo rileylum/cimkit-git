@@ -83,9 +83,17 @@ def connections_init(aprx_file: str) -> None:
     # (if any) to source fields/token and to refuse a conflicting declared mode.
     project = aprx.parent
     config_path = project / conn.CONFIG_FILENAME
-    existing = (
-        json.loads(config_path.read_text(encoding="utf-8")) if config_path.exists() else {}
-    )
+    # init is a user-invoked one-shot, so an unreadable / non-UTF-8 / malformed aprx.json
+    # should fail with the directed read_json_or_exit diagnostic (the same posture
+    # `connections check` inherits) rather than a raw traceback. The exists() short-circuit
+    # stays: a missing aprx.json is the normal fresh-init case ({}), not an error. The
+    # isinstance guard pairs with read_json_or_exit exactly as load_connections does:
+    # read_json_or_exit covers read/decode/parse, the shape check covers valid-JSON-that-
+    # is-not-an-object ([], null, a bare string) so `existing.get("mode")` below can't
+    # blow up with a raw AttributeError.
+    existing = conn.read_json_or_exit(config_path) if config_path.exists() else {}
+    if not isinstance(existing, dict):
+        sys.exit(f"aprx-tools: {config_path} must be a JSON object (the project config)")
     fields, token = _init_fields_token(project, existing)
 
     # The distinct connection strings to scaffold keys for. The field-walk lives behind

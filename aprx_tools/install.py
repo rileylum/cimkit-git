@@ -8,12 +8,11 @@ behave identically. The decision and the config write live here; `ProjectConfig`
 mode. (The git hooks themselves still presence-sniff today; issue 0009 switches
 them to read the recorded mode.)"""
 
-import json
 import stat
 import sys
 from pathlib import Path
 
-from .connections import CONFIG_FILENAME
+from .connections import CONFIG_FILENAME, read_json_or_exit
 from .project_config import ENV, MODES, SIMPLE, write_mode
 from .util import git_root
 
@@ -107,18 +106,27 @@ def install_hooks(repo_root: Path = None) -> None:
 def _read_config(config_path: Path) -> "tuple[str | None, dict]":
     """Return ``(declared_mode, raw_config)`` for an existing ``aprx.json``.
 
-    ``declared_mode`` is ``None`` when there is *no mode decision on record* —
-    the file is absent, unreadable, not a JSON object, or carries no recognised
-    ``mode``. In every such case install is free to decide and write one; a file
-    that already declares a valid mode is honoured untouched."""
+    A *missing* file is the fresh-install case — ``(None, {})`` — install decides a
+    mode and writes a new config. A file that is *present but unreadable / non-UTF-8 /
+    malformed / not a JSON object* is **not** collapsed into that same ``(None, {})``:
+    doing so would let install silently overwrite a committed config it merely failed
+    to *parse*, discarding the developer's ``fields``/``token`` — and you cannot
+    preserve fields you cannot read, so the only non-destructive answer is to stop.
+    Such a file is a directed ``sys.exit`` instead; install is a user-run one-shot,
+    never the fail-open hook sweep, so aborting it crashes no commit — fix or remove
+    the file and re-run. The read routes through the shared ``read_json_or_exit`` (the
+    single home for the read/decode/parse diagnostics), so install and ``connections
+    init`` report a broken ``aprx.json`` identically rather than drifting.
+
+    ``declared_mode`` is ``None`` when the file is absent or present-and-readable but
+    carries no recognised ``mode`` — e.g. a legacy mode-less config from ``connections
+    init``, whose ``fields``/``token`` come back in ``raw_config`` for the write to
+    preserve. A file that already declares a valid mode is honoured untouched."""
     if not config_path.exists():
         return None, {}
-    try:
-        cfg = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None, {}
+    cfg = read_json_or_exit(config_path)
     if not isinstance(cfg, dict):
-        return None, {}
+        sys.exit(f"aprx-tools: {config_path} must be a JSON object (the project config)")
     mode = cfg.get("mode")
     return (mode if mode in MODES else None), cfg
 
