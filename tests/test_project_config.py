@@ -88,6 +88,41 @@ def test_load_rejects_malformed_json(tmp_path):
     assert str(tmp_path / conn.CONFIG_FILENAME) in str(exc.value)
 
 
+def test_load_unreadable_config_reports_io_not_content(tmp_path, deny_reading):
+    # Issue 0005: a present-but-unreadable aprx.json (chmod 000, a transient I/O error)
+    # must fail with our own diagnostic — and a *distinct* one: a permissions/IO problem,
+    # not "malformed JSON" or "no mode". An uncaught OSError here would crash the whole
+    # pre-commit hook for an unrelated commit; converting it to sys.exit lets every caller
+    # inherit the graceful per-Project skip/block. Denied via monkeypatch (not chmod) so it
+    # holds even when the suite runs as root, where the file mode is ignored.
+    cfg_path = tmp_path / conn.CONFIG_FILENAME
+    cfg_path.write_text(json.dumps({"mode": "simple"}), encoding="utf-8")
+    deny_reading(cfg_path)
+
+    with pytest.raises(SystemExit) as exc:
+        ProjectConfig.load(tmp_path)
+    msg = str(exc.value)
+    assert str(cfg_path) in msg
+    assert "could not be read" in msg          # an I/O problem...
+    assert "permission" in msg.lower()
+    assert "JSON" not in msg                    # ...not the malformed-content diagnostic
+
+
+def test_load_non_utf8_config_reports_encoding_not_io(tmp_path):
+    # Issue 0005 follow-up: a non-UTF-8 aprx.json (saved UTF-16/Latin-1, or carrying a
+    # stray 0xFF byte) makes read_text raise UnicodeDecodeError — a ValueError, *not* an
+    # OSError — which would sail past both the OSError and json.JSONDecodeError guards and
+    # crash the whole hook. It must be converted to our own diagnostic, distinct again from
+    # the IO and malformed-JSON messages.
+    (tmp_path / conn.CONFIG_FILENAME).write_bytes(b"\xff\xfe{ not utf-8 ")
+    with pytest.raises(SystemExit) as exc:
+        ProjectConfig.load(tmp_path)
+    msg = str(exc.value)
+    assert "UTF-8" in msg
+    assert "could not be read" not in msg      # not the IO message
+    assert "valid JSON" not in msg             # not the malformed-JSON message
+
+
 @pytest.mark.parametrize("payload", ["42", "null", '"simple"', "[]"])
 def test_load_rejects_non_object_config(tmp_path, payload):
     # A top-level scalar/list must not crash with TypeError or be misread as

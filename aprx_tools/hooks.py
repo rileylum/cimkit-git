@@ -20,7 +20,7 @@ from .util import (
 )
 from . import connections as conn
 
-#: A Project whose ``aprx.json`` cannot be read (missing / malformed / no ``mode``).
+#: A Project whose ``aprx.json`` cannot be read (missing / unreadable / malformed / no ``mode``).
 #: Distinct from ``SIMPLE``/``ENV`` so :func:`plan_precommit` can apply the strict rule
 #: on the leak-sensitive path (block the commit) while the fail-open sweep just skips it.
 UNDECLARED = "undeclared"
