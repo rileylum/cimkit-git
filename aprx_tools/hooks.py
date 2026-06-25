@@ -313,6 +313,33 @@ def _retokenize_staged_source(root: Path, src_dir: Path) -> None:
     _git_run(root, "add", str(src_dir.relative_to(root)))
 
 
+def _blocked_messages(root: Path, blocked) -> list:
+    """Collect one strict ``ProjectConfig.load`` diagnostic per undeclared Project.
+
+    ``blocked`` is the sorted rel-path tuple from the plan, where a Project may appear
+    twice (as a staged binary *and* as a Source dir). De-duplicate by Project dir — the
+    rel-path's parent — keeping the first (alphabetically-first, i.e. the binary) rel as
+    the representative for the rare readable-window fallback. ``ProjectConfig.load``
+    aborts via ``sys.exit``, so its message is the ``SystemExit.code``; catching it per
+    Project lets every diagnostic print together instead of only the first."""
+    seen: dict = {}
+    for rel in blocked:
+        seen.setdefault((root / rel).parent, rel)
+    messages: list = []
+    for project_dir, rel in seen.items():
+        try:
+            ProjectConfig.load(project_dir)  # raises SystemExit with the diagnostic
+        except SystemExit as exc:
+            messages.append(str(exc.code))
+        else:
+            # The file became readable between decide and do — still abort (it was
+            # undeclared when planned), but ProjectConfig.load no longer supplies wording.
+            messages.append(
+                f"aprx-tools: {rel}: Project mode could not be read — run `aprx install`"
+            )
+    return messages
+
+
 def apply_plan(root: Path, plan: StagePlan) -> None:
     """Execute a :class:`StagePlan` against the git index — the **only** index-touching
     code in the pre-commit flow.
@@ -324,11 +351,16 @@ def apply_plan(root: Path, plan: StagePlan) -> None:
     file says *why* — missing, malformed, or no ``mode``) is cheaper than threading every
     variant through the plan. The fallback fires only if the file became readable in the
     sub-millisecond window between decide and do (a single-process hook) — still abort,
-    since the binary was undeclared when the plan was decided."""
+    since the binary was undeclared when the plan was decided.
+
+    Every blocked Project is reported, not just ``blocked[0]`` (issue 0008): a monorepo
+    commit can stage several undeclared Projects at once, and naming them one-per-retry
+    forces a fix-and-recommit drip. ``blocked`` is de-duplicated down to Project dirs so a
+    Project staged as both a binary and a Source dir is named once, then each strict
+    ``ProjectConfig.load`` diagnostic is captured and printed together before the single
+    abort — preserving the precise per-Project wording ADR-0001 wants."""
     if plan.blocked:
-        rel = plan.blocked[0]
-        ProjectConfig.load((root / rel).parent)  # raises SystemExit
-        sys.exit(f"aprx-tools: {rel}: Project mode could not be read — run `aprx install`")
+        sys.exit("\n".join(_blocked_messages(root, plan.blocked)))
 
     for src_dir in plan.refresh_env:
         _refresh_env_source(root, src_dir)
