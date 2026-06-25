@@ -111,8 +111,11 @@ class StagePlan:
                         normalised by ``pack``).
         pack:           Source dirs to pack and stage the resulting binary — the
                         simple-mode workflow plus merge-conflict resolution.
-        blocked:        staged binary rel-paths whose Project has no declared Mode; their
-                        presence aborts the whole commit (no bare-explode leak).
+        blocked:        rel-paths whose Project has no declared Mode — a staged binary, or
+                        a Source dir whose files were staged without the binary (issue
+                        0004). Either form's parent is the Project dir, so ``apply_plan``
+                        can re-raise the strict ``ProjectConfig.load`` error against it.
+                        Their presence aborts the whole commit (no bare-explode/pack leak).
     """
 
     refresh_env: tuple = ()
@@ -141,7 +144,6 @@ def plan_precommit(root: Path, staged, src_dirs, classify) -> StagePlan:
     refresh_env = sorted(
         (sd for sd in src_dir_set if classify(sd.parent) == ENV), key=str
     )
-    env_src = set(refresh_env)
 
     explode_simple: list = []
     unstage: list = []
@@ -167,12 +169,21 @@ def plan_precommit(root: Path, staged, src_dirs, classify) -> StagePlan:
             unstage.append(rel)
             pack.add(src_dir_for(aprx_abs))
 
-    # Staged Source files → pack their Source dir (simple-mode workflow + merge-conflict
-    # resolution, where a developer edited the Source JSON directly). Env Source dirs are
-    # excluded — their binary is built locally, never committed.
+    # Staged Source files → decide by the containing Project's Mode — the same three-valued
+    # classification the staged-binary loop uses, so an undeclared Project blocks on this
+    # path too (issue 0004). A developer who resolves a merge by editing Source inside an
+    # env/undeclared Project (staging Source, never the binary) must not slip past the
+    # leak guard: SIMPLE packs (merge-conflict resolution + the simple-mode workflow), ENV
+    # is excluded (its binary is built locally, never committed), and UNDECLARED blocks
+    # rather than be packed with IDENTITY into a binary of unsubstituted tokens / raw values.
     for rel in staged:
         src_top = _containing_src_dir(src_dir_set, root / rel)
-        if src_top is not None and src_top not in env_src:
+        if src_top is None:
+            continue
+        mode = classify(src_top.parent)
+        if mode == UNDECLARED:
+            blocked.append(str(src_top.relative_to(root)))
+        elif mode == SIMPLE:
             pack.add(src_top)
 
     return StagePlan(
@@ -180,7 +191,7 @@ def plan_precommit(root: Path, staged, src_dirs, classify) -> StagePlan:
         explode_simple=tuple(sorted(explode_simple, key=str)),
         unstage=tuple(sorted(unstage)),
         pack=tuple(sorted(pack, key=str)),
-        blocked=tuple(sorted(blocked)),
+        blocked=tuple(sorted(set(blocked))),
     )
 
 
