@@ -453,3 +453,43 @@ def test_misconfigured_env_project_does_not_block_unrelated_commit(repo, monkeyp
 
     assert "skipping" in capsys.readouterr().err
     assert "notes.txt" in _staged_names(repo)            # the real change still committed
+
+
+def test_unreadable_connections_file_does_not_block_unrelated_commit(repo, deny_reading, monkeypatch, capsys):
+    # Issue 0009, one read site over from 0005's aprx.json fix: an env Project whose
+    # connections/dev.json is present but unreadable makes the sweep's load_connections
+    # (via explode_transform → committed_reverse_map) raise OSError. That now converts to a
+    # SystemExit the sweep already catches, so the Project is skipped with a hint and an
+    # unrelated change still commits — instead of an uncaught traceback crashing the whole
+    # commit. deny_reading is applied after _make_env_project so its setup explode succeeds.
+    p = _make_env_project(repo, "map")
+    (repo / "notes.txt").write_text("unrelated change")
+    _git(repo, "add", "notes.txt")
+    deny_reading(p.proj / "connections" / "dev.json")
+    monkeypatch.chdir(repo)
+
+    hook_pre_commit()                                    # must not raise
+
+    assert "skipping" in capsys.readouterr().err
+    assert "notes.txt" in _staged_names(repo)            # the real change still committed
+    assert not _staged_contains(repo, p.value)           # no bare-explode → raw value never staged
+    assert not any(n.startswith("map/map.aprx.src/") for n in _staged_names(repo))
+
+
+def test_malformed_connections_file_does_not_block_unrelated_commit(repo, monkeypatch, capsys):
+    # The malformed twin of the above: a hand-broken / merge-conflicted connections/dev.json
+    # raises JSONDecodeError in load_connections, which (pre-0009) the sweep did NOT catch.
+    # Converted to a SystemExit, it is skipped like any unresolvable env Project, so an
+    # unrelated change still commits and no raw value leaks via a bare explode.
+    p = _make_env_project(repo, "map")
+    (p.proj / "connections" / "dev.json").write_text("{ not valid json")
+    (repo / "notes.txt").write_text("unrelated change")
+    _git(repo, "add", "notes.txt")
+    monkeypatch.chdir(repo)
+
+    hook_pre_commit()                                    # must not raise
+
+    assert "skipping" in capsys.readouterr().err
+    assert "notes.txt" in _staged_names(repo)
+    assert not _staged_contains(repo, p.value)
+    assert not any(n.startswith("map/map.aprx.src/") for n in _staged_names(repo))

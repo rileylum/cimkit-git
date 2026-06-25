@@ -79,28 +79,14 @@ class ProjectConfig:
                 f"this project has no declared mode; {_INSTALL_HINT}"
             )
 
-        # Read, decode, and parse are split into three distinct diagnostics (issue 0005):
-        # an *I/O* failure, a *not-UTF-8* file, and *malformed JSON* are different problems
-        # the user fixes differently. Any of them left uncaught would propagate out of every
-        # caller — crashing the pre-commit hook for the whole repo, not just the one Project.
-        # Converting each to a sys.exit lets every caller (the hook's fail-open sweep, verify,
-        # bootstrap, build) inherit the graceful per-Project skip/block they already give a
-        # declared-but-invalid config. UnicodeDecodeError is a ValueError, not an OSError, so
-        # it needs its own clause — read_text(encoding=...) raises it on a non-UTF-8 file
-        # (UTF-16/Latin-1, a stray 0xFF byte), and it would otherwise sail past both guards.
-        try:
-            raw = cfg_path.read_text(encoding="utf-8")
-        except OSError as err:
-            sys.exit(
-                f"aprx-tools: {cfg_path} could not be read ({err}) — "
-                f"check the file's permissions and that it is a regular file"
-            )
-        except UnicodeDecodeError as err:
-            sys.exit(f"aprx-tools: {cfg_path} is not valid UTF-8 text ({err})")
-        try:
-            cfg = json.loads(raw)
-        except json.JSONDecodeError as err:
-            sys.exit(f"aprx-tools: {cfg_path} is not valid JSON ({err})")
+        # Read/decode/parse failures become three distinct diagnostics (issue 0005) via
+        # the shared loader (issue 0009) — an *I/O* failure, a *not-UTF-8* file, and
+        # *malformed JSON* are different problems the user fixes differently. Routing both
+        # aprx.json and the connection files through conn.read_json_or_exit keeps that
+        # wording in one home, so the two read-sites can never drift apart. The existence
+        # check above stays here: a *missing* aprx.json is not an I/O error but the
+        # "this project declared no mode — run aprx install" case, with its own message.
+        cfg = conn.read_json_or_exit(cfg_path)
         if not isinstance(cfg, dict):
             sys.exit(f"aprx-tools: {cfg_path} must be a JSON object — {_INSTALL_HINT}")
 

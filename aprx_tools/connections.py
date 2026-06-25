@@ -74,9 +74,46 @@ def resolve_connections_file(project_dir, env=None, connections_file=None) -> "P
 # Connection maps
 # --------------------------------------------------------------------------- #
 
+def read_json_or_exit(path):
+    """Read and JSON-parse one file, turning the three file-read failure modes into
+    three *distinct* ``sys.exit`` diagnostics: an *I/O* failure, a *not-UTF-8* file, and
+    *malformed JSON* are different problems a user fixes differently. The **single home**
+    for "load a JSON file from disk for this tool, or fail with a directed message" —
+    both this module's ``load_connections`` and ``ProjectConfig.load`` route through it
+    so ``aprx.json`` and the connection files can never drift apart in how they report
+    the same class of failure (issues 0005 and 0009).
+
+    Converting these to ``sys.exit`` (rather than letting them raise) is what lets every
+    caller inherit a graceful skip/block: the pre-commit fail-open sweep already catches
+    ``SystemExit``, the never-blocking post-* rebuild downgrades it to a skip, and the
+    ``verify`` / ``connections check`` gates report it instead of dumping a traceback —
+    an uncaught error here would crash the whole commit. ``UnicodeDecodeError`` is a
+    ``ValueError``, not an ``OSError``, so it needs its own clause — ``read_text`` raises
+    it on a non-UTF-8 file (UTF-16/Latin-1, a stray ``0xFF`` byte), and it would otherwise
+    sail past both the ``OSError`` and the ``JSONDecodeError`` guards. Structural
+    validation (is it the *right shape* of JSON object) stays with each caller, whose
+    "what this file should contain" message differs."""
+    path = Path(path)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as err:
+        sys.exit(
+            f"aprx-tools: {path} could not be read ({err}) — "
+            f"check the file's permissions and that it is a regular file"
+        )
+    except UnicodeDecodeError as err:
+        sys.exit(f"aprx-tools: {path} is not valid UTF-8 text ({err})")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as err:
+        sys.exit(f"aprx-tools: {path} is not valid JSON ({err})")
+
+
 def load_connections(path) -> "dict[str, str]":
-    """Load a ``{key: connection_string}`` JSON object."""
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    """Load a ``{key: connection_string}`` JSON object. The read/decode/parse failures
+    are converted to directed diagnostics by :func:`read_json_or_exit`; the shape check
+    (a JSON *object*) carries the connection-file-specific wording."""
+    data = read_json_or_exit(path)
     if not isinstance(data, dict):
         sys.exit(f"aprx-tools: {path} must be a JSON object of key -> connection string")
     return data
