@@ -178,3 +178,61 @@ class ProjectConfig:
                 f"(no --connections, no --env, no {conn.LOCAL_FILE})"
             )
         return conn.load_connections(path)
+
+    def connection_key_sets(self) -> "dict[str, set[str]]":
+        """``{filename: {keys}}`` for each **committed** environment — feeds
+        ``connections check``'s "every environment defines the same keys" assertion
+        without the caller reaching into ``load_connections`` itself."""
+        self._require_env("connection key-set inspection")
+        return {
+            f.name: set(conn.load_connections(f))
+            for f in self.committed_connection_files()
+        }
+
+    # ----------------------------------------------------------------- #
+    # Environment mode — the domain questions over a Project's entries.
+    #
+    # These answer "is this Source neutral, and does each environment build
+    # it?" — the questions verify and bootstrap used to hand-assemble from the
+    # low-level connections engine (``scan_tokens`` / ``collect_field_values`` +
+    # set arithmetic, issue 0003). They take the **parsed JSON entries** the
+    # Entry reader yields (``entry.parsed`` values, issue 0002) rather than a
+    # path, so the field-walk lives behind this one object and the questions
+    # unit-test by passing a list of parsed dicts — no ``.aprx``, no directory
+    # walk. Pass a re-iterable sequence (a list) when more than one question
+    # scans the same Source, or a spent generator answers the later ones empty.
+    # ----------------------------------------------------------------- #
+
+    def referenced_keys(self, parsed_entries) -> "set[str]":
+        """The token keys the Source references: every ``@@key@@`` placeholder found
+        in a configured field across *parsed_entries*."""
+        keys: "set[str]" = set()
+        for parsed in parsed_entries:
+            found, _ = conn.scan_tokens(parsed, self.fields, self.token)
+            keys |= found
+        return keys
+
+    def leaked_values(self, parsed_entries) -> "set[str]":
+        """Raw connection strings that leaked into the meant-to-be-neutral Source:
+        configured-field values that are *not* tokens. A non-empty result means a
+        commit was made without the hooks; verify turns it into a failure."""
+        raw: "set[str]" = set()
+        for parsed in parsed_entries:
+            _, found = conn.scan_tokens(parsed, self.fields, self.token)
+            raw |= found
+        return raw
+
+    def unresolved_keys(self, parsed_entries, env_file) -> "set[str]":
+        """The referenced keys *env_file* does not define — the "does this
+        environment cover every token the Source uses" check. Empty means the
+        Project builds for that environment."""
+        return self.referenced_keys(parsed_entries) - set(conn.load_connections(env_file))
+
+    def discovered_values(self, parsed_entries) -> "set[str]":
+        """Every distinct connection string under the configured fields — what
+        ``connections init`` scans a fresh Project's binary for to scaffold the
+        per-environment connection files."""
+        values: "set[str]" = set()
+        for parsed in parsed_entries:
+            values |= conn.collect_field_values(parsed, self.fields)
+        return values
