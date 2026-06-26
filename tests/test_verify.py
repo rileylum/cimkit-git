@@ -71,14 +71,17 @@ def test_verify_fails_on_raw_connection_string(env_project, explode_env):
 # Simple (single-environment) projects
 # --------------------------------------------------------------------------- #
 
-def _simple_project(base, simple_aprx):
+def _simple_project(base, simple_aprx, **policy):
     """Lay out a simple-mode Project under *base*: the .aprx plus the committed
     `aprx.json` that declares `mode: simple`. Strict resolution (ADR-0001) means verify
-    reads that file rather than guessing, so it must be present in the working tree."""
+    reads that file rather than guessing, so it must be present in the working tree.
+
+    Extra **policy keys (e.g. ``commit_binary=True``) are written into the aprx.json so
+    a test can opt the Project into the binary-lifecycle policy under test."""
     base.mkdir(parents=True, exist_ok=True)
     aprx = base / "simple.aprx"
     shutil.copy(simple_aprx, aprx)
-    (base / "aprx.json").write_text(json.dumps({"mode": "simple"}))
+    (base / "aprx.json").write_text(json.dumps({"mode": "simple", **policy}))
     return aprx
 
 
@@ -107,6 +110,35 @@ def test_verify_simple_missing_binary_is_fine(tmp_path, simple_aprx):
     aprx = _simple_project(tmp_path, simple_aprx)
     src = explode(str(aprx))
     aprx.unlink()                              # binary hand-ignored / never committed
+    assert verify(str(src)) == 0
+
+
+def test_verify_simple_commit_binary_true_missing_binary_fails(tmp_path, simple_aprx):
+    """`commit_binary: true` is the opt-in that restores the incomplete-commit
+    detection 0001 relaxed: a simple-mode Project that declares it must commit the
+    binary FAILS verify when the binary is absent. Simple mode can always build a
+    faithful, neutral binary, so its absence under this policy is a forgotten commit."""
+    aprx = _simple_project(tmp_path, simple_aprx, commit_binary=True)
+    src = explode(str(aprx))
+    aprx.unlink()                              # the policy says commit it, but it is gone
+    assert verify(str(src)) == 1
+
+
+def test_verify_simple_commit_binary_true_present_in_sync_passes(tmp_path, simple_aprx):
+    """The other half of the opt-in: with `commit_binary: true` and a present, in-sync
+    binary, verify PASSES — the policy is satisfied, and the present binary is still
+    packed-and-compared (so a stale one would still fail)."""
+    aprx = _simple_project(tmp_path, simple_aprx, commit_binary=True)
+    explode(str(aprx))
+    assert verify(str(tmp_path / "simple.aprx.src")) == 0
+
+
+def test_verify_simple_commit_binary_false_missing_binary_passes(tmp_path, simple_aprx):
+    """`commit_binary: false` is a *declared* no-commit policy: a missing binary is the
+    intended state, so verify stays green — same sync-if-present behaviour as absent."""
+    aprx = _simple_project(tmp_path, simple_aprx, commit_binary=False)
+    src = explode(str(aprx))
+    aprx.unlink()
     assert verify(str(src)) == 0
 
 

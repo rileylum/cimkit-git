@@ -143,6 +143,50 @@ def test_load_rejects_string_fields(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# Binary-lifecycle policy: commit_binary (issue 0003)
+#
+# A tri-state by design: absent means "no declared policy" (lenient, Part 1),
+# which is NOT the same as false. The linchpin of backward compatibility is that
+# an absent key parses to None, never to False.
+# --------------------------------------------------------------------------- #
+
+def test_load_commit_binary_absent_is_none_not_false(tmp_path):
+    # The backward-compat linchpin: every pre-existing Project omits the key and
+    # must land in the lenient "no declared policy" state — None, distinct from a
+    # deliberate false.
+    _write_config(tmp_path, mode="simple")
+    cfg = ProjectConfig.load(tmp_path)
+    assert cfg.commit_binary is None
+
+
+def test_load_reads_commit_binary_true(tmp_path):
+    _write_config(tmp_path, mode="simple", commit_binary=True)
+    assert ProjectConfig.load(tmp_path).commit_binary is True
+
+
+def test_load_reads_commit_binary_false(tmp_path):
+    _write_config(tmp_path, mode="simple", commit_binary=False)
+    assert ProjectConfig.load(tmp_path).commit_binary is False
+
+
+def test_load_reads_commit_binary_in_env_mode(tmp_path):
+    # The key is mode-independent at the schema layer; env-mode parsing must work too.
+    _write_config(tmp_path, mode="env", commit_binary=True)
+    assert ProjectConfig.load(tmp_path).commit_binary is True
+
+
+@pytest.mark.parametrize("bad", ["yes", 1, 0, "true", [], {}])
+def test_load_rejects_non_boolean_commit_binary(tmp_path, bad):
+    # A non-boolean (string "true", an int, a list) must fail loudly through the
+    # existing strict-load diagnostics, not be silently coerced — `1`/`0` look
+    # boolean-ish but are a config typo. (JSON true/false parse to real Python bools.)
+    _write_config(tmp_path, mode="simple", commit_binary=bad)
+    with pytest.raises(SystemExit) as exc:
+        ProjectConfig.load(tmp_path)
+    assert "commit_binary" in str(exc.value)
+
+
+# --------------------------------------------------------------------------- #
 # Environment mode: connection-file discovery + map building
 # --------------------------------------------------------------------------- #
 
