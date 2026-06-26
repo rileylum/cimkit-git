@@ -33,6 +33,42 @@ def _git_run(root: Path, *args) -> None:
     subprocess.run(["git"] + list(args), cwd=root, check=True, capture_output=True)
 
 
+def _stage_packed_binary(root: Path, rel: str) -> None:
+    """Stage a freshly-packed simple-mode binary, tolerating git's refusal to add an
+    **untracked + git-ignored** file (issue 0002).
+
+    The pack step always regenerates the working ``.aprx`` (so the author can open the
+    Project); this only stages it. An author who has hand-added the binary to
+    ``.gitignore`` and never tracked it makes ``git add`` exit non-zero ("The following
+    paths are ignored ..."), which a plain ``check=True`` run would turn into a whole-commit
+    abort. We stay agnostic to tracked-vs-untracked and let git decide: a *tracked* binary
+    that is also ignored is re-staged normally (``git add`` succeeds on it); only a
+    genuinely untracked + ignored one is skipped — truly leaving version control is the
+    author's ``git rm --cached`` to run. Any other ``git add`` failure still propagates."""
+    result = subprocess.run(
+        ["git", "add", rel], cwd=root, capture_output=True, text=True
+    )
+    if result.returncode == 0:
+        return
+    # git refused. Tolerate *only* the ignore-rejection — every other failure (a stale
+    # `index.lock`, an IO/permission error, a bad pathspec) must still abort loudly, exactly
+    # as the old check=True run did. Two signals must both hold, so an unrelated failure on a
+    # path that merely happens to match a gitignore pattern is never swallowed:
+    #   * git uses exit status 1 for the "paths are ignored" advisory refusal and 128 for
+    #     fatal errors, so the refusal is distinguishable from a lock/IO crash; and
+    #   * `git check-ignore` confirms the path is actually ignored (it reports a *tracked*
+    #     ignored file as not-ignored, but a tracked file would have staged at returncode 0
+    #     above and never reach here — so this is the genuinely untracked + ignored binary).
+    is_ignore_refusal = result.returncode == 1 and subprocess.run(
+        ["git", "check-ignore", "-q", rel], cwd=root
+    ).returncode == 0
+    if is_ignore_refusal:
+        print(f"  aprx-tools: not staging {rel} — git-ignored "
+              f"(working binary still regenerated)", file=sys.stderr)
+        return
+    result.check_returncode()  # re-raise the CalledProcessError check=True would have
+
+
 def _staged(root: Path) -> set:
     output = _git(root, "diff", "--cached", "--name-only", "--diff-filter=ACM")
     return set(output.splitlines()) if output else set()
@@ -380,7 +416,7 @@ def apply_plan(root: Path, plan: StagePlan) -> None:
     for src_dir in plan.pack:
         aprx_path = aprx_for_src_dir(src_dir)
         pack(str(src_dir), str(aprx_path))
-        _git_run(root, "add", str(aprx_path.relative_to(root)))
+        _stage_packed_binary(root, str(aprx_path.relative_to(root)))
 
 
 def hook_pre_commit() -> None:
