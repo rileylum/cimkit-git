@@ -16,9 +16,12 @@ For an environment-mode Project it asserts:
   * every token the source references has a value in every environment file (the
     project actually builds for each environment).
 
-For a simple-mode Project it is sync-if-present: a missing committed .aprx is OK
-(the Source is the canonical truth, the binary a regenerated artifact), and a
-*present* .aprx is asserted in sync with a fresh pack of its source.
+For a simple-mode Project the binary check honours the declared ``commit_binary``
+policy (issue 0003): with no declared policy (absent) or ``false`` it is
+sync-if-present — a missing committed .aprx is OK (the Source is the canonical
+truth, the binary a regenerated artifact) and a *present* .aprx is asserted in
+sync with a fresh pack of its source; with ``commit_binary: true`` a missing binary
+is a hard failure, restoring the incomplete-commit detection for teams that opt in.
 """
 
 import sys
@@ -74,20 +77,33 @@ def _verify_env_project(src_dir: Path, cfg: ProjectConfig, env: str, problems: l
             )
 
 
-def _verify_simple_project(src_dir: Path, problems: list) -> None:
+def _verify_simple_project(src_dir: Path, cfg: ProjectConfig, problems: list) -> None:
     aprx = aprx_for_src_dir(src_dir)  # util owns the src↔binary naming convention
     if not aprx.exists():
-        # Sync-if-present: a missing committed binary is OK. By the tool's own
-        # principle the Source is the canonical truth and the .aprx is a regenerated
-        # artifact (CLAUDE.md "What this is"), so "Source-only" — an author who has
-        # hand-ignored the binary and committed only the diffable Source — is a
+        # Policy branch on the declared binary lifecycle (issue 0003). Only an explicit
+        # `commit_binary: true` *requires* the binary; the tri-state collapses to "is it
+        # truthy" exactly here — None (absent, no declared policy) and False (declared
+        # no-commit) are both lenient, True alone is strict.
+        if cfg.commit_binary:
+            # The opt-in restores the incomplete-commit detection 0001 relaxed. Simple
+            # mode can always rebuild a faithful, neutral binary, so under a declared
+            # commit-it policy an absent binary is a forgotten commit, not a legitimate
+            # Source-only repo.
+            problems.append(
+                f"{src_dir.name}: committed {aprx.name} is missing but commit_binary "
+                f"is true (run `aprx pack` / the hooks and commit it)"
+            )
+            return
+        # Sync-if-present (absent / `false` policy): a missing committed binary is OK.
+        # By the tool's own principle the Source is the canonical truth and the .aprx is
+        # a regenerated artifact (CLAUDE.md "What this is"), so "Source-only" — an author
+        # who has hand-ignored the binary and committed only the diffable Source — is a
         # legitimate state, not an incomplete commit.
         #
-        # Tradeoff knowingly dropped here: with no binary present, verify can no
-        # longer catch "author forgot to commit the binary". Issue 0003 restores that
-        # detection for teams that opt in via `commit_binary: true`, which makes a
-        # present + in-sync binary a hard requirement again. A *present* binary is
-        # still packed-and-compared below, so a stale committed binary is still caught.
+        # Tradeoff knowingly dropped here: with no binary present and no opt-in, verify
+        # cannot catch "author forgot to commit the binary"; `commit_binary: true` above
+        # is exactly the knob that restores it. A *present* binary is still
+        # packed-and-compared below, so a stale committed binary is still caught.
         return
     with tempfile.TemporaryDirectory() as tmp:
         rebuilt = pack(str(src_dir), str(Path(tmp) / aprx.name))
@@ -125,7 +141,7 @@ def verify(src_dir: str = None, env: str = None) -> int:
             if cfg.is_env:
                 _verify_env_project(sd, cfg, env, problems)
             else:
-                _verify_simple_project(sd, problems)
+                _verify_simple_project(sd, cfg, problems)
         except SystemExit as e:
             problems.append(f"{sd.name}: {e.code}")
             continue

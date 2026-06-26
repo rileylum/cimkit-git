@@ -296,8 +296,17 @@ failure. It is not GitHub-specific: it is a plain CLI check, so any runner invok
 it the same way. For an environment-managed project it asserts the committed source
 is fully tokenised (nobody committed without the hooks) and that every token
 resolves in every `connections/<env>.json` (the project builds for each
-environment). For a simple project it asserts the committed `.aprx` is in sync with
-its source.
+environment). For a simple project it checks the committed `.aprx` against its
+source **if present**: a `.aprx` that has drifted out of sync fails, but a missing
+binary is OK by default — the source is the canonical truth and the `.aprx` a
+regenerated artifact, so a deliberately source-only repo is not failed.
+
+Teams that *want* the binary committed can opt back into the stricter check with
+`"commit_binary": true` in the project's `aprx.json` (written by `aprx install`):
+the binary must then be **present and in sync**, restoring detection of a forgotten
+binary. `verify` inspects the binary on disk (the working tree), which in a clean CI
+checkout is exactly what is committed — so note that a *local* run can pass on an
+untracked or git-ignored binary that a clean CI checkout would flag.
 
 The job body is identical everywhere — `pip install aprx-tools && aprx verify` —
 only the trigger differs:

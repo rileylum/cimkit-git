@@ -53,12 +53,19 @@ class ProjectConfig:
         mode:   ``"simple"`` or ``"env"``.
         fields: the JSON field names whose values are connection strings.
         token:  the placeholder format, e.g. ``"@@{key}@@"``.
+        commit_binary: the author's binary-lifecycle policy (issue 0003), a
+            **tri-state**: ``None`` (absent — no declared policy, the lenient Part 1
+            behaviour), ``True`` (commit it — ``verify`` requires a present, in-sync
+            binary), or ``False`` (declared no-commit). ``None`` is deliberately *not*
+            ``False``: an absent key must change nothing, which is what keeps every
+            pre-existing Project backward-compatible.
     """
 
     dir: Path
     mode: str
     fields: tuple[str, ...]
     token: str
+    commit_binary: bool | None = None
 
     # ----------------------------------------------------------------- #
     # Construction — the one place the file is read and validated.
@@ -114,7 +121,24 @@ class ProjectConfig:
                 f"aprx-tools: 'fields' in {cfg_path} must be a list of field names"
             )
 
-        return cls(dir=project_dir, mode=mode, fields=tuple(fields), token=token)
+        # Binary-lifecycle policy (issue 0003). Absent => None (lenient, no declared
+        # policy) — distinct from a deliberate `false`. `bool` is checked exactly (not
+        # truthiness) so a typo'd `1`/`"true"` is rejected here rather than silently
+        # coerced into a policy the author did not write. `isinstance(True, int)` holds
+        # in Python, so the `bool` test must precede any int-friendliness.
+        commit_binary = cfg.get("commit_binary")
+        if commit_binary is not None and not isinstance(commit_binary, bool):
+            sys.exit(
+                f"aprx-tools: 'commit_binary' in {cfg_path} must be true or false"
+            )
+
+        return cls(
+            dir=project_dir,
+            mode=mode,
+            fields=tuple(fields),
+            token=token,
+            commit_binary=commit_binary,
+        )
 
     # ----------------------------------------------------------------- #
     # Mode predicate
