@@ -98,41 +98,36 @@ def test_verify_simple_out_of_sync(tmp_path, simple_aprx):
     assert verify(str(src)) == 1
 
 
-def test_verify_simple_missing_binary(tmp_path, simple_aprx, capsys):
-    """A simple-mode Project commits both the Source and the binary. Source present
-    with the `.aprx` absent is an incomplete commit, not a valid state: the in-sync
-    gate (PRD story 20) has nothing to rebuild against, so verify must FAIL and name
-    the remediation rather than wave it through (the pre-0007 silent `return`)."""
+def test_verify_simple_missing_binary_is_fine(tmp_path, simple_aprx):
+    """Sync-if-present (issue 0001): a simple-mode Project whose committed binary is
+    absent is a legitimate Source-only state — the Source is the canonical truth and
+    the `.aprx` a regenerated artifact — so verify PASSES rather than failing on the
+    missing binary (the pre-0001 hard failure). The dropped "forgot to commit the
+    binary" detection is what issue 0003's `commit_binary: true` opt-in restores."""
     aprx = _simple_project(tmp_path, simple_aprx)
     src = explode(str(aprx))
-    aprx.unlink()                              # binary never committed / deleted
-    assert verify(str(src)) == 1
-    err = capsys.readouterr().err
-    # Name the missing *binary* specifically — "simple.aprx" alone would also be
-    # satisfied by the source dir "simple.aprx.src", so assert it in its message slot.
-    assert "committed simple.aprx is missing" in err
-    assert "aprx pack" in err                  # points at the remediation
+    aprx.unlink()                              # binary hand-ignored / never committed
+    assert verify(str(src)) == 0
 
 
-def test_verify_simple_missing_binary_collected_not_aborting(
+def test_verify_simple_problems_collected_not_aborting(
     tmp_path, simple_aprx, monkeypatch, capsys
 ):
-    """As the repo-wide gate, a missing binary is one collected problem, not a
+    """As the repo-wide gate, each Project's failure is one collected problem, not a
     loop-abort: sibling Projects are still checked (consistent with 0007). Exercised
     through a real whole-tree run (`verify()` with no src_dir, discovering both
     Projects via `iter_src_dirs`) so the multi-target loop is actually driven — a
     single-target call would only ever iterate once and prove nothing about collection.
-    The sibling carries its own distinct out-of-sync problem, so BOTH must surface:
-    that the second problem is reported is the proof the first one did not abort the loop."""
-    _simple_project(tmp_path / "missing", simple_aprx)
-    missing_aprx = explode(str(tmp_path / "missing" / "simple.aprx")).parent / "simple.aprx"
-    missing_aprx.unlink()                       # problem 1: binary is missing
-
-    stale_src = explode(str(_simple_project(tmp_path / "stale", simple_aprx)))
-    gp = stale_src / "GISProject.json"
-    data = json.loads(gp.read_text())
-    data["__tamper__"] = True                   # problem 2: source no longer matches binary
-    gp.write_text(json.dumps(data))
+    Both Projects carry their own out-of-sync problem, so BOTH must surface: that the
+    second is reported is the proof the first did not abort the loop. (Missing binary
+    is no longer a problem under issue 0001's sync-if-present, so the two failures here
+    are stale committed binaries — the case verify still catches.)"""
+    for name in ("one", "two"):
+        src = explode(str(_simple_project(tmp_path / name, simple_aprx)))
+        gp = src / "GISProject.json"
+        data = json.loads(gp.read_text())
+        data["__tamper__"] = True               # source no longer matches the committed binary
+        gp.write_text(json.dumps(data))
 
     # No src_dir → discover every Project under the root. tmp_path is not a git repo,
     # so git_root(required=False) falls back to cwd; point cwd at the tree holding both.
@@ -140,8 +135,7 @@ def test_verify_simple_missing_binary_collected_not_aborting(
     assert verify() == 1
     err = capsys.readouterr().err
     assert "2 problem(s)" in err                # both Projects checked — neither aborted the loop
-    assert "committed simple.aprx is missing" in err
-    assert "out of sync" in err
+    assert err.count("out of sync") == 2        # each sibling reported its own problem
 
 
 # --------------------------------------------------------------------------- #
