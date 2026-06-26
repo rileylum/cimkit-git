@@ -246,6 +246,76 @@ def test_simple_precommit_packs_and_stages_binary(repo, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# pre-commit — simple mode tolerates a git-ignored binary (issue 0002)
+# --------------------------------------------------------------------------- #
+
+def test_simple_precommit_tolerates_untracked_ignored_binary(repo, monkeypatch):
+    # AC: a simple-mode commit succeeds when the binary is untracked + git-ignored — the
+    # hook must NOT abort. The author has hand-added the binary to .gitignore and never
+    # tracked it; `git add` of that path exits non-zero, which the old check=True staging
+    # turned into a whole-commit abort.
+    p = _make_simple_project(repo, "doc")
+    explode(str(p.aprx), str(p.proj / "doc.aprx.src"))
+    (repo / ".gitignore").write_text("doc/doc.aprx\n")
+    p.aprx.unlink()                                       # prove pack regenerates it below
+    _git(repo, "add", "doc/doc.aprx.src", ".gitignore")  # source only; binary stays untracked
+    monkeypatch.chdir(repo)
+
+    hook_pre_commit()                                    # must not raise
+
+    staged = _staged_names(repo)
+    assert "doc/doc.aprx" not in staged                  # the ignored binary is not staged
+    assert p.aprx.exists()                               # but pack still regenerated the working binary
+    assert any(n.startswith("doc/doc.aprx.src/") for n in staged)  # source committed as normal
+
+
+def test_simple_precommit_restages_tracked_but_ignored_binary(repo, monkeypatch):
+    # AC: a tracked-but-ignored binary is still re-staged — git allows `git add` on a
+    # tracked file regardless of .gitignore, so a half-migrated Project (ignored, not yet
+    # `git rm --cached`) keeps its binary in sync. We stay agnostic and let git decide.
+    p = _make_simple_project(repo, "doc")
+    explode(str(p.aprx), str(p.proj / "doc.aprx.src"))
+    _git(repo, "add", "doc/doc.aprx", "doc/doc.aprx.src")
+    _git(repo, "commit", "-m", "seed tracked binary")    # binary is now tracked
+    (repo / ".gitignore").write_text("doc/doc.aprx\n")    # ...and now also ignored
+
+    # A source edit so pack re-derives a *different* binary — a re-stage then shows up in
+    # the index (an unchanged blob would not appear in diff --cached).
+    gis = p.proj / "doc.aprx.src" / "GISProject.json"
+    data = json.loads(gis.read_text())
+    data["__edit_0002__"] = "x"
+    gis.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    _git(repo, "add", "doc/doc.aprx.src")
+    monkeypatch.chdir(repo)
+
+    hook_pre_commit()
+
+    assert "doc/doc.aprx" in _staged_names(repo)          # tracked+ignored binary re-staged
+
+
+def test_stage_packed_binary_reraises_non_ignore_failure(repo):
+    # The tolerance is scoped to git's ignore-rejection only: a `git add` that fails for any
+    # *other* reason (here a path that does not exist and is not ignored) must still propagate
+    # exactly as the old check=True staging did — never be silently swallowed.
+    from aprx_tools.hooks import _stage_packed_binary
+
+    with pytest.raises(subprocess.CalledProcessError):
+        _stage_packed_binary(repo, "does/not/exist.aprx")
+
+
+def test_stage_packed_binary_reraises_failure_on_ignored_path(repo):
+    # The sharp edge: a path that IS git-ignored but whose `git add` fails for a non-ignore
+    # reason (here it does not exist → git's fatal exit 128, distinct from the ignore-refusal's
+    # exit 1) must still propagate. Keying tolerance on `check-ignore` alone would misread this
+    # as the benign ignore case and swallow a real error — the regression this guards.
+    (repo / ".gitignore").write_text("ghost.aprx\n")
+    from aprx_tools.hooks import _stage_packed_binary
+
+    with pytest.raises(subprocess.CalledProcessError):
+        _stage_packed_binary(repo, "ghost.aprx")        # ignored AND nonexistent
+
+
+# --------------------------------------------------------------------------- #
 # pre-commit — mixed monorepo (each Project by its own Mode in one run)
 # --------------------------------------------------------------------------- #
 
