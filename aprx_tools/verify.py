@@ -16,8 +16,9 @@ For an environment-mode Project it asserts:
   * every token the source references has a value in every environment file (the
     project actually builds for each environment).
 
-For a simple-mode Project it asserts the committed .aprx is present (a simple-mode
-Project commits both Source and binary) and in sync with a fresh pack of its source.
+For a simple-mode Project it is sync-if-present: a missing committed .aprx is OK
+(the Source is the canonical truth, the binary a regenerated artifact), and a
+*present* .aprx is asserted in sync with a fresh pack of its source.
 """
 
 import sys
@@ -76,17 +77,17 @@ def _verify_env_project(src_dir: Path, cfg: ProjectConfig, env: str, problems: l
 def _verify_simple_project(src_dir: Path, problems: list) -> None:
     aprx = aprx_for_src_dir(src_dir)  # util owns the src↔binary naming convention
     if not aprx.exists():
-        # A simple-mode Project commits both the Source and the binary; the .aprx is
-        # the committed artifact, the Source its diffable rendering (CLAUDE.md "What
-        # this is"). Source present + binary absent is an incomplete commit, not a
-        # valid state, so the in-sync gate (PRD story 20) has nothing to check and
-        # the repo cannot be rebuilt — report it rather than passing silently. (Env
-        # mode's missing .aprx is a gitignored build artifact and never reaches here:
-        # this runs only on verify()'s `else` branch, ADR-0001 / issue 0007.)
-        problems.append(
-            f"{src_dir.name}: committed {aprx.name} is missing — pack the source and "
-            f"commit it (run the hooks, or `aprx pack {src_dir.name}`)"
-        )
+        # Sync-if-present: a missing committed binary is OK. By the tool's own
+        # principle the Source is the canonical truth and the .aprx is a regenerated
+        # artifact (CLAUDE.md "What this is"), so "Source-only" — an author who has
+        # hand-ignored the binary and committed only the diffable Source — is a
+        # legitimate state, not an incomplete commit.
+        #
+        # Tradeoff knowingly dropped here: with no binary present, verify can no
+        # longer catch "author forgot to commit the binary". Issue 0003 restores that
+        # detection for teams that opt in via `commit_binary: true`, which makes a
+        # present + in-sync binary a hard requirement again. A *present* binary is
+        # still packed-and-compared below, so a stale committed binary is still caught.
         return
     with tempfile.TemporaryDirectory() as tmp:
         rebuilt = pack(str(src_dir), str(Path(tmp) / aprx.name))
