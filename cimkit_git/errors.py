@@ -39,3 +39,19 @@ class ValuesError(CimkitError):
 
 class AmbiguousValueError(CimkitError):
     pass
+
+
+class NotAGitRepoError(CimkitError):
+    pass
+
+
+class StateError(CimkitError):
+    pass
+
+
+class PlaceholderError(CimkitError):
+    """Carries the problems from neutralise or resolve; cli.py words each one."""
+
+    def __init__(self, problems):
+        super().__init__(f"{len(problems)} placeholder problem(s)")
+        self.problems = problems

@@ -100,3 +100,21 @@ def test_find_stops_at_the_stop_directory(tmp_path):
     (tmp_path / "repo").mkdir()
 
     assert config.find_config(tmp_path / "repo", stop=tmp_path / "repo") is None
+
+
+def test_exclude_lists_project_globs_and_defaults_to_none(tmp_path):
+    path = tmp_path / "cimkit.toml"
+    path.write_text("[git]\n")
+    assert config.load_config(path).exclude == ()
+
+    path.write_text('[git]\nexclude = ["archive/*", "scratch.aprx"]\n')
+    assert config.load_config(path).exclude == ("archive/*", "scratch.aprx")
+
+
+@pytest.mark.parametrize("value", ['"archive/*"', "[1]"])
+def test_exclude_must_be_a_list_of_strings(tmp_path, value):
+    path = tmp_path / "cimkit.toml"
+    path.write_text(f"[git]\nexclude = {value}\n")
+
+    with pytest.raises(errors.ConfigError):
+        config.load_config(path)
