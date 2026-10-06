@@ -14,7 +14,7 @@ NAMES_FILE = "_names.json"
 XML_DECL = '<?xml version="1.0" encoding="utf-8"?>'
 
 
-def _kind(data: bytes) -> str:
+def entry_kind(data: bytes) -> str:
     # Suffixes lie: Pro 3.x stores JSON in .xml entries, and .atbx in .content and .rc.
     first = data.lstrip()[:1]
     if first in (b"{", b"["):
@@ -64,7 +64,7 @@ def _xml(data: bytes, indent: str | None) -> bytes:
 
 
 def _reformat_entry(data: bytes, pretty: bool) -> bytes:
-    kind = _kind(data)
+    kind = entry_kind(data)
     if kind == "json":
         obj = json.loads(data)
         if pretty:
