@@ -28,6 +28,7 @@ Issues = "https://github.com/rileylum/cimkit-git/issues"
 
 [project.scripts]
 git-cim = "cimkit_git.__main__:main"
+cimkit-git = "cimkit_git.cli:main"
 
 [project.optional-dependencies]
 test = ["pytest>=7"]

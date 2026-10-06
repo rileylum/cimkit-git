@@ -24,6 +24,8 @@ class Placeholders:
 class Config:
     path: Path
     placeholders: Placeholders | None
+    # Globs over a binary's path relative to the config file's directory.
+    exclude: tuple[str, ...] = ()
 
 
 def _table(path: Path, doc: dict) -> dict | None:
@@ -65,19 +67,25 @@ def _read(path: Path) -> dict | None:
         raise ConfigError(f"{path}: {exc}") from exc
 
 
+def _exclude(path: Path, table: dict) -> tuple[str, ...]:
+    value = table.get("exclude", [])
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise ConfigError(f"{path}: exclude must be a list of strings")
+    return tuple(value)
+
+
 def load_config(path: Path) -> Config:
-    ph = (_read(path) or {}).get("placeholders")
-    if ph is None:
-        return Config(path, None)
-    return Config(
-        path,
-        Placeholders(
+    table = _read(path) or {}
+    ph = table.get("placeholders")
+    placeholders = None
+    if ph is not None:
+        placeholders = Placeholders(
             fields=_strings(path, ph, "fields"),
             format=_format(path, ph),
             keys=_names(path, ph, "keys"),
             targets=_names(path, ph, "targets"),
-        ),
-    )
+        )
+    return Config(path, placeholders, _exclude(path, table))
 
 
 def find_config(start: Path, stop: Path) -> Path | None:
