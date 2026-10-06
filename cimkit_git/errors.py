@@ -27,3 +27,15 @@ class BadEntryNameError(CimkitError):
 
 class SymlinkInSourceError(CimkitError):
     pass
+
+
+class ConfigError(CimkitError):
+    pass
+
+
+class ValuesError(CimkitError):
+    pass
+
+
+class AmbiguousValueError(CimkitError):
+    pass
