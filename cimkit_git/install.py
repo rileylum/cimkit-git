@@ -17,9 +17,6 @@ from .project_config import ENV, MODES, SIMPLE, write_mode
 from .util import git_root
 
 MARKER = "managed-by: cimkit-git"
-# Hooks written before the rename carry this marker. Without it, install would treat
-# a 0.2.x user's own hooks as foreign and refuse to upgrade them.
-LEGACY_MARKERS = ("managed-by: aprx-tools",)
 
 _NON_TTY_WARNING = (
     "cimkit-git: no TTY and no --mode given — defaulting to simple mode "
@@ -86,7 +83,7 @@ def install_hooks(repo_root: Path = None) -> None:
 
         if hook_path.exists():
             existing = hook_path.read_text()
-            if any(m in existing for m in (MARKER, *LEGACY_MARKERS)):
+            if MARKER in existing:
                 # Already installed — overwrite with latest version.
                 pass
             else:

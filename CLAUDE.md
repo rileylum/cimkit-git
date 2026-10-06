@@ -140,9 +140,7 @@ touching pack.
 ## Distribution
 
 This repo publishes a single Python package to **PyPI** (`pyproject.toml`): the actual
-package + the `git-cim` entry point (git runs it as `git cim`). A deprecated `aprx`
-alias (`main_legacy`) remains for 0.2.x users; `install.LEGACY_MARKERS` lets install
-replace hooks written under the old `aprx-tools` name. Releases are automated by `.github/workflows/release.yml`
+package + the `git-cim` entry point (git runs it as `git cim`). Releases are automated by `.github/workflows/release.yml`
 (publish a GitHub Release → trusted-publishing upload to PyPI; see README "Releasing").
 
 `cimkit_git/install.py` generates the five git hooks (`pre-commit`, `pre-push`,

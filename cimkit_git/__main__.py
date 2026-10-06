@@ -149,11 +149,5 @@ def main() -> None:
         sys.exit(1)
 
 
-def main_legacy() -> None:
-    print("cimkit-git: the `aprx` command is deprecated; use `git cim` instead",
-          file=sys.stderr)
-    main()
-
-
 if __name__ == "__main__":
     main()

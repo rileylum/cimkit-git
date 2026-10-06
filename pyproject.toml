@@ -28,8 +28,6 @@ Issues = "https://github.com/rileylum/cimkit-git/issues"
 
 [project.scripts]
 git-cim = "cimkit_git.__main__:main"
-# Pre-rename command name; remove once 0.2.x users have migrated.
-aprx = "cimkit_git.__main__:main_legacy"
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
