@@ -98,6 +98,14 @@ codec exists.
     declarations as attributes. Whitespace is added on render, and removed on build,
     **only inside elements whose children are all elements**. Text values, including
     whitespace-only values such as `<x> </x>`, and mixed content pass through unchanged.
+
+    **Known limit, accepted:** `minidom` writes some escaped control characters raw, so
+    the next parse changes them. A `&#13;` in text comes back as a newline on every
+    Python. On Python 3.11 and 3.12, a `&#10;` or `&#9;` in an attribute value comes back
+    as a space. No Pro 3.x entry in the corpus uses these escapes. If one turns up, the
+    fix is a small serializer that writes `&#9;`, `&#10;` and `&#13;` itself. Strict
+    `xfail` tests in `tests/test_source.py` pin the correct behaviour, so they flag when
+    the fix lands.
   - Known opaque entries (thumbnails, blobs) are copied as raw bytes.
 
   The first build of a Pro-written binary changes number text and the whitespace

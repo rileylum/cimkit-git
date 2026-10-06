@@ -7,7 +7,7 @@ name = "cimkit-git"
 version = "0.3.0"
 description = "Version control for ArcGIS project files (.aprx), part of the cimkit suite"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Riley Lum", email = "rileywlum@gmail.com" }]
 keywords = ["arcgis", "aprx", "cim", "cimkit", "gis", "git", "version-control"]
