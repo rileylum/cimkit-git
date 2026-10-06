@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from aprx_tools.bootstrap import _suggest_key, connections_init, connections_check
-from aprx_tools.project_config import ProjectConfig
+from cimkit_git.bootstrap import _suggest_key, connections_init, connections_check
+from cimkit_git.project_config import ProjectConfig
 
 
 # --------------------------------------------------------------------------- #
@@ -190,7 +190,7 @@ def test_init_non_object_config_reports_shape(multi_conn_aprx, payload):
 
 
 def test_init_preserves_a_declared_env_config(multi_conn_aprx):
-    # Compose with `aprx install --mode env`: when env mode (and custom token) is
+    # Compose with `git cim install --mode env`: when env mode (and custom token) is
     # already declared, init sources fields/token from ProjectConfig and keeps them
     # — mirroring install's preserve test for the init side.
     cfg_path = multi_conn_aprx.dir / "aprx.json"

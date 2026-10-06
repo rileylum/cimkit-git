@@ -14,7 +14,7 @@ def explode(aprx_path: str, output_dir: str = None, transform=IDENTITY) -> Path:
     each JSON entry, hands it to ``transform.apply`` (which may rewrite it in place),
     and pretty-prints the result. Simple mode passes the no-op ``IDENTITY``;
     environment mode passes a ``Substitution`` that tokenises connection strings. The
-    composition root (CLI / hooks) chooses which, so a direct ``aprx explode`` of an
+    composition root (CLI / hooks) chooses which, so a direct ``git cim explode`` of an
     environment-mode project still produces neutral source.
 
     The transform is two-phase: ``apply`` runs per entry, then ``raise_if_problems``
@@ -24,7 +24,7 @@ def explode(aprx_path: str, output_dir: str = None, transform=IDENTITY) -> Path:
     """
     aprx = Path(aprx_path)
     if not aprx.exists():
-        sys.exit(f"aprx-tools: {aprx} not found")
+        sys.exit(f"cimkit-git: {aprx} not found")
 
     out = Path(output_dir) if output_dir else src_dir_for(aprx)
 

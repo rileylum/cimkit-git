@@ -1,4 +1,4 @@
-"""`aprx verify` — a single exit-coded gate for CI.
+"""`git cim verify` — a single exit-coded gate for CI.
 
 The check that every CI system calls. It does NOT need GitHub — it is a plain
 command that exits non-zero on failure, so GitHub Actions, GitLab CI, Azure
@@ -7,7 +7,7 @@ Pipelines, or any runner can invoke it identically.
 The Mode decision comes from the authoritative committed ``aprx.json`` via
 ``ProjectConfig`` (ADR-0001), never from the old presence-sniffing heuristic — so
 CI checks exactly the Mode the team declared. A Project that declares no Mode fails
-with the "run ``aprx install``" guidance instead of silently passing; the failure is
+with the "run ``git cim install``" guidance instead of silently passing; the failure is
 collected like any other so the repo-wide gate still reports every project.
 
 For an environment-mode Project it asserts:
@@ -65,7 +65,7 @@ def _verify_env_project(src_dir: Path, cfg: ProjectConfig, env: str, problems: l
     elif not env_files:
         problems.append(
             f"{src_dir.name}: no connections/*.json to verify against — "
-            f"run `aprx connections init` or add a connections file"
+            f"run `git cim connections init` or add a connections file"
         )
         return
 
@@ -91,7 +91,7 @@ def _verify_simple_project(src_dir: Path, cfg: ProjectConfig, problems: list) ->
             # Source-only repo.
             problems.append(
                 f"{src_dir.name}: committed {aprx.name} is missing but commit_binary "
-                f"is true (run `aprx pack` / the hooks and commit it)"
+                f"is true (run `git cim pack` / the hooks and commit it)"
             )
             return
         # Sync-if-present (absent / `false` policy): a missing committed binary is OK.
@@ -121,14 +121,14 @@ def verify(src_dir: str = None, env: str = None) -> int:
         targets = list(iter_src_dirs(git_root(required=False)))
 
     if not targets:
-        print("aprx verify: no .aprx.src directories found", file=sys.stderr)
+        print("git cim verify: no .aprx.src directories found", file=sys.stderr)
         return 1
 
     problems: list = []
     for sd in targets:
         # Strict resolution (ADR-0001): the Mode is read from the committed `aprx.json`
         # adjacent to the source, not guessed. A Project with no declared Mode is a
-        # failure carrying the "run `aprx install`" guidance — but as the single
+        # failure carrying the "run `git cim install`" guidance — but as the single
         # repo-wide CI gate, verify must check *every* project and report all of them,
         # so an un-migrated project becomes one collected problem rather than a hard-exit
         # that aborts the loop and masks its siblings. The catch wraps the whole
@@ -147,10 +147,10 @@ def verify(src_dir: str = None, env: str = None) -> int:
             continue
 
     if problems:
-        print(f"aprx verify: FAILED ({len(problems)} problem(s))", file=sys.stderr)
+        print(f"git cim verify: FAILED ({len(problems)} problem(s))", file=sys.stderr)
         for p in problems:
             print(f"  - {p}", file=sys.stderr)
         return 1
 
-    print(f"aprx verify: OK ({len(targets)} project(s) checked)")
+    print(f"git cim verify: OK ({len(targets)} project(s) checked)")
     return 0

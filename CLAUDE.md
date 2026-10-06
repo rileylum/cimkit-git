@@ -5,6 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 CLI + git-hook tooling that makes ArcGIS `.aprx` project files version-controllable.
+It is `cimkit-git`, one package of the cimkit suite (sibling repos live in `~/dev/cimkit/`);
+it was published as `aprx-tools` up to 0.2.1.
 An `.aprx` is a zip of JSON (Pro 3.x) / XML (Pro 2.x) entries. The tool *explodes*
 it into a diffable `<name>.aprx.src/` directory, *packs* that directory back into an
 `.aprx`, and installs git hooks so the conversion is automatic. Both the binary and
@@ -21,17 +23,17 @@ uv run pytest tests/test_pack.py::test_name # single test
 uv run pytest -k roundtrip                  # by keyword
 
 # Run the CLI from source
-uv run aprx explode map.aprx          # → map.aprx.src/
-uv run aprx pack    map.aprx.src/     # → map.aprx
-uv run aprx compare a.aprx b.aprx     # semantic diff; exit 1 if differs
-uv run aprx install                   # install git hooks into the cwd's repo
+uv run git cim explode map.aprx          # → map.aprx.src/
+uv run git cim pack    map.aprx.src/     # → map.aprx
+uv run git cim compare a.aprx b.aprx     # semantic diff; exit 1 if differs
+uv run git cim install                   # install git hooks into the cwd's repo
 ```
 
-`uv` is required only for developing aprx-tools itself. There is no linter configured.
+`uv` is required only for developing cimkit-git itself. There is no linter configured.
 
 ## Architecture
 
-Single Python package `aprx_tools/`, dispatched through `__main__.py` (argparse).
+Single Python package `cimkit_git/`, dispatched through `__main__.py` (argparse).
 Each command lazy-imports its module. The data flow is a round-trip:
 
 ```
@@ -45,7 +47,7 @@ compare.py:  normalises both sides and unified-diffs them (works on files OR dir
   `.aprx.src` *and* contains `GISProject.json`). Changing this convention ripples
   through hooks, pack, and explode.
 
-- **`hooks.py`** is the logic the installed git hooks call via `python3 -m aprx_tools hook <name>`.
+- **`hooks.py`** is the logic the installed git hooks call via `python3 -m cimkit_git hook <name>`.
   `hook_pre_commit` has two layers worth understanding before editing:
   - **Env-managed projects first**: for each existing `.aprx.src/` that sits in a
     connection-substitution project, stage neutral (tokenised) source only — the binary is
@@ -65,14 +67,14 @@ compare.py:  normalises both sides and unified-diffs them (works on files OR dir
   `hook_post_merge` / `hook_post_checkout` / `hook_post_stash` all call `build_working_copies`,
   which repacks each `.aprx.src/` into its local working `.aprx` (default `local.json`),
   skipping env projects that have no resolvable connections file.
-  `hook_pre_push` runs `aprx verify` — the local mirror of the CI gate — and returns its exit
+  `hook_pre_push` runs `git cim verify` — the local mirror of the CI gate — and returns its exit
   code to block a push of an untokenised or unbuildable source (`git push --no-verify` bypasses).
   Five hooks are installed in total (`pre-commit`, `pre-push`, `post-stash`, `post-merge`,
   `post-checkout`); the `pre-push` script omits the install-hint wrapper so `verify`'s own
   diagnostics show.
 
 - **`install.py`** writes the hook scripts into `.git/hooks/`. Hooks are tagged with the
-  `managed-by: aprx-tools` marker — install overwrites its own hooks but refuses to clobber
+  `managed-by: cimkit-git` marker — install overwrites its own hooks but refuses to clobber
   foreign ones (prints manual-integration instructions instead). The hook scripts probe for
   a repo-local `.venv`/`venv`/`env` Python before falling back to `python3`.
 
@@ -84,7 +86,7 @@ field (`"simple" | "env"`) in a committed `aprx.json` via `ProjectConfig.load`
 token, connection-file discovery). There is **no presence-sniffing**: the tool never
 infers a mode from a stray `connections/` dir or `local.json`. Resolution is **strict**
 — a project with no `aprx.json`, or one whose `aprx.json` omits `mode`, is a hard exit
-directing the user to `aprx install`. Two modes coexist and the code must preserve both:
+directing the user to `git cim install`. Two modes coexist and the code must preserve both:
 
 - **Simple mode** (`"mode": "simple"`): explode/pack behave exactly as before — this is
   what keeps the existing tests green. The CLI hands the core the no-op `IDENTITY`
@@ -94,7 +96,7 @@ directing the user to `aprx install`. Two modes coexist and the code must preser
   them back for a chosen environment. The CLI builds a `Substitution` transform from the
   `ProjectConfig` and injects it (see ADR-0002, the transform seam).
 
-`aprx install` is the opt-in point that writes the `mode` into `aprx.json` (prompt,
+`git cim install` is the opt-in point that writes the `mode` into `aprx.json` (prompt,
 `--mode simple|env`, or non-TTY simple default); `connections init` writes `"mode": "env"`
 as it scaffolds. An existing declaration is honoured untouched.
 
@@ -106,14 +108,14 @@ as it scaffolds. An existing declaration is honoured untouched.
   `resolve_connections_file` (precedence: `--connections` > `--env` > `local.json`) and
   `build_reverse_map` (union across all env files; errors if one value maps to two keys) live
   here too — driven by `ProjectConfig`, not by file-presence detection.
-- **`bootstrap.py`** implements `aprx connections init` (scan an `.aprx` for distinct connection
+- **`bootstrap.py`** implements `git cim connections init` (scan an `.aprx` for distinct connection
   strings, scaffold `aprx.json` + `connections/dev.json` + `local.json.example`) and
-  `aprx connections check` (assert every `connections/*.json` defines the same key set).
-- **`verify.py`** implements `aprx verify` — the single exit-coded CI gate (CI-agnostic by
+  `git cim connections check` (assert every `connections/*.json` defines the same key set).
+- **`verify.py`** implements `git cim verify` — the single exit-coded CI gate (CI-agnostic by
   design; any runner calls it). Env mode: source is fully tokenised (`scan_tokens` finds no raw
   values) and every referenced key resolves in every env file. Simple mode: committed `.aprx`
   matches `pack(src)`. README "Continuous integration" has per-provider trigger snippets.
-- The working `.aprx` is a gitignored build artifact in env mode; `aprx build` (and the
+- The working `.aprx` is a gitignored build artifact in env mode; `git cim build` (and the
   post-merge/post-checkout hooks) regenerate it from source + `local.json`.
 
 ### Determinism (do not break this)
@@ -138,13 +140,15 @@ touching pack.
 ## Distribution
 
 This repo publishes a single Python package to **PyPI** (`pyproject.toml`): the actual
-package + the `aprx` entry point. Releases are automated by `.github/workflows/release.yml`
+package + the `git-cim` entry point (git runs it as `git cim`). A deprecated `aprx`
+alias (`main_legacy`) remains for 0.2.x users; `install.LEGACY_MARKERS` lets install
+replace hooks written under the old `aprx-tools` name. Releases are automated by `.github/workflows/release.yml`
 (publish a GitHub Release → trusted-publishing upload to PyPI; see README "Releasing").
 
-`aprx_tools/install.py` generates the five git hooks (`pre-commit`, `pre-push`,
+`cimkit_git/install.py` generates the five git hooks (`pre-commit`, `pre-push`,
 `post-stash`, `post-merge`, `post-checkout`) from a small factory (`pre-commit` /
 `pre-push` block on failure; the `post-*` hooks never block).
-`__version__` lives in `aprx_tools/__init__.py` and is mirrored in `pyproject.toml` —
+`__version__` lives in `cimkit_git/__init__.py` and is mirrored in `pyproject.toml` —
 bump both together.
 
 ## Tests

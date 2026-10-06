@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from aprx_tools.connections import CONFIG_FILENAME
-from aprx_tools.install import _read_config, install, install_hooks, MARKER
-from aprx_tools.util import git_root
+from cimkit_git.connections import CONFIG_FILENAME
+from cimkit_git.install import _read_config, install, install_hooks, MARKER
+from cimkit_git.util import git_root
 
 
 def _config(repo: Path) -> dict:
@@ -49,12 +49,12 @@ def test_hooks_contain_marker(git_repo):
 
 
 def test_pre_push_runs_verify_without_install_hint(git_repo):
-    # pre-push must let `aprx verify` speak for itself, not mask a real failure
-    # with the generic "is aprx-tools installed?" message.
+    # pre-push must let `git cim verify` speak for itself, not mask a real failure
+    # with the generic "is cimkit-git installed?" message.
     install_hooks(git_repo)
     text = (git_repo / ".git" / "hooks" / "pre-push").read_text()
     assert "hook pre-push" in text
-    assert "is aprx-tools installed" not in text
+    assert "is cimkit-git installed" not in text
 
 
 def test_install_is_idempotent(git_repo):
@@ -62,6 +62,16 @@ def test_install_is_idempotent(git_repo):
     install_hooks(git_repo)
     for name in ALL_HOOKS:
         assert MARKER in (git_repo / ".git" / "hooks" / name).read_text()
+
+
+def test_upgrades_hook_written_by_aprx_tools(git_repo):
+    hook_path = git_repo / ".git" / "hooks" / "pre-commit"
+    hook_path.write_text("#!/usr/bin/env bash\n# managed-by: aprx-tools\n"
+                         "python3 -m aprx_tools hook pre-commit\n")
+    install_hooks(git_repo)
+    text = hook_path.read_text()
+    assert MARKER in text
+    assert "-m cimkit_git hook pre-commit" in text
 
 
 def test_does_not_overwrite_foreign_hook(git_repo, capsys):
@@ -243,6 +253,6 @@ def test_main_install_mode_flag(git_repo, monkeypatch):
     # AC5: exercised through the real CLI entry point.
     monkeypatch.chdir(git_repo)
     monkeypatch.setattr(sys, "argv", ["aprx", "install", "--mode", "env"])
-    from aprx_tools.__main__ import main
+    from cimkit_git.__main__ import main
     main()
     assert _config(git_repo)["mode"] == "env"

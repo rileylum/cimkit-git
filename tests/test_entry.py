@@ -6,7 +6,7 @@ import zipfile
 
 import pytest
 
-from aprx_tools.entry import (
+from cimkit_git.entry import (
     JSON,
     OPAQUE,
     XML,
@@ -135,7 +135,7 @@ def test_opaque_entry_survives_render_unchanged(project, render):
 
 def test_opaque_round_trips_through_pack(tmp_path):
     """The end-to-end guarantee: an opaque blob explodes and packs back byte-for-byte."""
-    from aprx_tools.pack import pack
+    from cimkit_git.pack import pack
     aprx, src = _make_project(tmp_path, {
         "GISProject.json": json.dumps({"v": "3.0"}).encode(),
         "thumbnail.dat": THUMBNAIL,

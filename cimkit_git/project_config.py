@@ -8,7 +8,7 @@ needs to know "what is this Project and how does it substitute" goes through her
 the assembly sequence is not copy-pasted across explode / pack / verify / bootstrap.
 
 Resolution is **strict** (ADR-0001): a Project with no ``aprx.json``, or one whose
-``aprx.json`` omits ``mode``, is a hard error directing the user to run ``aprx install``.
+``aprx.json`` omits ``mode``, is a hard error directing the user to run ``git cim install``.
 The old presence-sniffing heuristic (infer env mode from a stray ``connections/`` dir or
 ``local.json``) is gone — mode is read, never guessed.
 
@@ -29,7 +29,7 @@ SIMPLE = "simple"
 ENV = "env"
 MODES = (SIMPLE, ENV)
 
-_INSTALL_HINT = "run `aprx install` to declare it"
+_INSTALL_HINT = "run `git cim install` to declare it"
 
 
 def write_mode(config_path, mode: str, existing: "dict | None" = None) -> None:
@@ -37,7 +37,7 @@ def write_mode(config_path, mode: str, existing: "dict | None" = None) -> None:
     in *existing* (e.g. the ``fields``/``token`` scaffolded by ``connections init``).
 
     This is the **single writer** of the ``ProjectConfig``-loadable shape. Both
-    ``aprx install`` and ``connections init`` funnel through it so the two paths can
+    ``git cim install`` and ``connections init`` funnel through it so the two paths can
     never emit divergent files: whichever runs second keeps what the first wrote."""
     merged = {"mode": mode}
     merged.update({k: v for k, v in (existing or {}).items() if k != "mode"})
@@ -76,13 +76,13 @@ class ProjectConfig:
         """Read and validate ``<project_dir>/aprx.json``.
 
         Strict: a missing file or a missing ``mode`` is a hard error pointing at
-        ``aprx install``. Returns a frozen ``ProjectConfig`` on success."""
+        ``git cim install``. Returns a frozen ``ProjectConfig`` on success."""
         project_dir = Path(project_dir)
         cfg_path = project_dir / conn.CONFIG_FILENAME
 
         if not cfg_path.exists():
             sys.exit(
-                f"aprx-tools: {project_dir} has no {conn.CONFIG_FILENAME} — "
+                f"cimkit-git: {project_dir} has no {conn.CONFIG_FILENAME} — "
                 f"this project has no declared mode; {_INSTALL_HINT}"
             )
 
@@ -92,33 +92,33 @@ class ProjectConfig:
         # aprx.json and the connection files through conn.read_json_or_exit keeps that
         # wording in one home, so the two read-sites can never drift apart. The existence
         # check above stays here: a *missing* aprx.json is not an I/O error but the
-        # "this project declared no mode — run aprx install" case, with its own message.
+        # "this project declared no mode — run git cim install" case, with its own message.
         cfg = conn.read_json_or_exit(cfg_path)
         if not isinstance(cfg, dict):
-            sys.exit(f"aprx-tools: {cfg_path} must be a JSON object — {_INSTALL_HINT}")
+            sys.exit(f"cimkit-git: {cfg_path} must be a JSON object — {_INSTALL_HINT}")
 
         if "mode" not in cfg:
             sys.exit(
-                f"aprx-tools: {cfg_path} declares no 'mode' — {_INSTALL_HINT}"
+                f"cimkit-git: {cfg_path} declares no 'mode' — {_INSTALL_HINT}"
             )
 
         mode = cfg["mode"]
         if mode not in MODES:
             sys.exit(
-                f"aprx-tools: {cfg_path} has unknown mode {mode!r} — "
+                f"cimkit-git: {cfg_path} has unknown mode {mode!r} — "
                 f"expected one of {', '.join(MODES)}"
             )
 
         token = cfg.get("token", conn.DEFAULT_TOKEN)
         if "{key}" not in token:
-            sys.exit(f"aprx-tools: token format {token!r} must contain '{{key}}'")
+            sys.exit(f"cimkit-git: token format {token!r} must contain '{{key}}'")
 
         fields = cfg.get("fields", conn.DEFAULT_FIELDS)
         # A bare string would be shredded into characters by tuple(), silently
         # matching no field and leaking raw connection strings — reject it.
         if isinstance(fields, str) or not isinstance(fields, (list, tuple)):
             sys.exit(
-                f"aprx-tools: 'fields' in {cfg_path} must be a list of field names"
+                f"cimkit-git: 'fields' in {cfg_path} must be a list of field names"
             )
 
         # Binary-lifecycle policy (issue 0003). Absent => None (lenient, no declared
@@ -129,7 +129,7 @@ class ProjectConfig:
         commit_binary = cfg.get("commit_binary")
         if commit_binary is not None and not isinstance(commit_binary, bool):
             sys.exit(
-                f"aprx-tools: 'commit_binary' in {cfg_path} must be true or false"
+                f"cimkit-git: 'commit_binary' in {cfg_path} must be true or false"
             )
 
         return cls(
@@ -161,7 +161,7 @@ class ProjectConfig:
         no-op that might pick up a stray ``local.json``."""
         if not self.is_env:
             sys.exit(
-                f"aprx-tools: {self.dir} is a simple-mode project — "
+                f"cimkit-git: {self.dir} is a simple-mode project — "
                 f"{what} is only available in environment mode"
             )
 
@@ -187,9 +187,9 @@ class ProjectConfig:
         files = self.committed_connection_files()
         if not files:
             sys.exit(
-                f"aprx-tools: {self.dir} is an environment-mode project but has no "
+                f"cimkit-git: {self.dir} is an environment-mode project but has no "
                 f"{conn.CONNECTIONS_DIR}/*.json to tokenize against — "
-                f"run `aprx connections init` or add a connections file"
+                f"run `git cim connections init` or add a connections file"
             )
         return conn.build_reverse_map(files)
 
@@ -202,7 +202,7 @@ class ProjectConfig:
         path = conn.resolve_connections_file(self.dir, env, connections_file)
         if path is None:
             sys.exit(
-                f"aprx-tools: {self.dir} has no connection values to pack with "
+                f"cimkit-git: {self.dir} has no connection values to pack with "
                 f"(no --connections, no --env, no {conn.LOCAL_FILE})"
             )
         return conn.load_connections(path)

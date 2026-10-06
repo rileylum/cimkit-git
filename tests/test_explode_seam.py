@@ -17,9 +17,9 @@ import shutil
 
 import pytest
 
-from aprx_tools.explode import explode
-from aprx_tools.project_config import ProjectConfig
-from aprx_tools.transform import Substitution, SubstitutionError
+from cimkit_git.explode import explode
+from cimkit_git.project_config import ProjectConfig
+from cimkit_git.transform import Substitution, SubstitutionError
 
 
 # --------------------------------------------------------------------------- #

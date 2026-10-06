@@ -63,7 +63,7 @@ def _stage_packed_binary(root: Path, rel: str) -> None:
         ["git", "check-ignore", "-q", rel], cwd=root
     ).returncode == 0
     if is_ignore_refusal:
-        print(f"  aprx-tools: not staging {rel} — git-ignored "
+        print(f"  cimkit-git: not staging {rel} — git-ignored "
               f"(working binary still regenerated)", file=sys.stderr)
         return
     result.check_returncode()  # re-raise the CalledProcessError check=True would have
@@ -303,7 +303,7 @@ def _refresh_env_source(root: Path, src_dir: Path) -> None:
     try:
         explode(str(aprx), str(src_dir), transform=explode_transform(src_dir.parent))
     except (SystemExit, SubstitutionError) as e:
-        print(f"  aprx-tools: skipping {src_dir.name} — {e}", file=sys.stderr)
+        print(f"  cimkit-git: skipping {src_dir.name} — {e}", file=sys.stderr)
         return
     _git_run(root, "add", str(src_dir.relative_to(root)))
 
@@ -336,7 +336,7 @@ def _retokenize_staged_source(root: Path, src_dir: Path) -> None:
             payloads.append((entry.name, render_pretty(entry)))
         transform.raise_if_problems()
     except (SystemExit, SubstitutionError) as e:
-        print(f"  aprx-tools: skipping {src_dir.name} — {e}", file=sys.stderr)
+        print(f"  cimkit-git: skipping {src_dir.name} — {e}", file=sys.stderr)
         return
 
     for name, payload in payloads:
@@ -370,7 +370,7 @@ def _blocked_messages(root: Path, blocked) -> list:
             # The file became readable between decide and do — still abort (it was
             # undeclared when planned), but ProjectConfig.load no longer supplies wording.
             messages.append(
-                f"aprx-tools: {rel}: Project mode could not be read — run `aprx install`"
+                f"cimkit-git: {rel}: Project mode could not be read — run `git cim install`"
             )
     return messages
 
@@ -380,7 +380,7 @@ def apply_plan(root: Path, plan: StagePlan) -> None:
     code in the pre-commit flow.
 
     A blocked Project aborts before anything is staged: re-raise the strict
-    ``ProjectConfig.load`` error (ADR-0001, the ``aprx install`` hint) so the leak-
+    ``ProjectConfig.load`` error (ADR-0001, the ``git cim install`` hint) so the leak-
     sensitive path fails with its precise diagnostic and nothing is half-committed.
     apply_plan is the I/O side of the seam, so reproducing that exact wording here (the
     file says *why* — missing, malformed, or no ``mode``) is cheaper than threading every
@@ -462,19 +462,19 @@ def build_working_copies(root: Path = None, src_dir: str = None, env: str = None
         project_dir = sd.resolve().parent
 
         # Read the declared Mode (ADR-0001) — never sniffed. A Project with no
-        # declaration (e.g. not yet `aprx install`ed) can't be resolved strictly, so
+        # declaration (e.g. not yet `git cim install`ed) can't be resolved strictly, so
         # skip it: a never-blocking post-* hook reports and moves on rather than crashing.
         try:
             cfg = ProjectConfig.load(project_dir)
         except SystemExit as e:
-            print(f"  aprx-tools: skipping {sd.name} — {e}", file=sys.stderr)
+            print(f"  cimkit-git: skipping {sd.name} — {e}", file=sys.stderr)
             continue
 
         # An env-mode Project with no resolvable connections file can't be built into a
         # working copy without emitting unsubstituted tokens — skip with a hint rather
         # than leak a broken binary full of @@tokens@@.
         if cfg.is_env and conn.resolve_connections_file(project_dir, env, None) is None:
-            print(f"  aprx-tools: skipping {sd.name} — no {conn.LOCAL_FILE} "
+            print(f"  cimkit-git: skipping {sd.name} — no {conn.LOCAL_FILE} "
                   f"(copy {conn.LOCAL_FILE}.example and fill in your connections)",
                   file=sys.stderr)
             continue
@@ -492,7 +492,7 @@ def build_working_copies(root: Path = None, src_dir: str = None, env: str = None
             # 0009), not a raw OSError/JSONDecodeError that would crash a hook documented
             # never to block. SubstitutionError covers a resolvable-but-incomplete env
             # (a missing token key). Either way these post-* hooks downgrade to a skip.
-            print(f"  aprx-tools: skipping {sd.name} — {e}", file=sys.stderr)
+            print(f"  cimkit-git: skipping {sd.name} — {e}", file=sys.stderr)
 
 
 def hook_post_merge() -> None:
@@ -510,7 +510,7 @@ def hook_post_stash() -> None:
 
 
 def hook_pre_push() -> int:
-    """Pre-push gate — the local mirror of the CI `aprx verify` check. Blocks a
+    """Pre-push gate — the local mirror of the CI `git cim verify` check. Blocks a
     push whose source is untokenised or won't build for every environment.
     Returns the verify exit code so the hook can fail the push."""
     from .verify import verify

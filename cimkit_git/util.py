@@ -25,7 +25,7 @@ def git_root(start: Path = None, *, required: bool = True) -> Path:
         return Path(out.strip())
     except (subprocess.CalledProcessError, FileNotFoundError):
         if required:
-            sys.exit("aprx-tools: not inside a git repository")
+            sys.exit("cimkit-git: not inside a git repository")
         return start
 
 

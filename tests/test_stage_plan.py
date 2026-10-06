@@ -14,7 +14,7 @@ The real-repo `apply_plan` side stays covered by `test_hooks_pre_commit.py`.
 
 from pathlib import Path
 
-from aprx_tools.hooks import ENV, SIMPLE, UNDECLARED, StagePlan, plan_precommit
+from cimkit_git.hooks import ENV, SIMPLE, UNDECLARED, StagePlan, plan_precommit
 
 ROOT = Path("/repo")
 

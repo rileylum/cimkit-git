@@ -3,14 +3,14 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aprx-tools"
-version = "0.2.1"
-description = "Version-control tooling for ArcGIS .aprx project files"
+name = "cimkit-git"
+version = "0.3.0"
+description = "Version control for ArcGIS project files (.aprx), part of the cimkit suite"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "Riley Lum", email = "rileywlum@gmail.com" }]
-keywords = ["arcgis", "aprx", "gis", "git", "version-control"]
+keywords = ["arcgis", "aprx", "cim", "cimkit", "gis", "git", "version-control"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -22,18 +22,20 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/rileylum/aprx-tools"
-Repository = "https://github.com/rileylum/aprx-tools"
-Issues = "https://github.com/rileylum/aprx-tools/issues"
+Homepage = "https://github.com/rileylum/cimkit-git"
+Repository = "https://github.com/rileylum/cimkit-git"
+Issues = "https://github.com/rileylum/cimkit-git/issues"
 
 [project.scripts]
-aprx = "aprx_tools.__main__:main"
+git-cim = "cimkit_git.__main__:main"
+# Pre-rename command name; remove once 0.2.x users have migrated.
+aprx = "cimkit_git.__main__:main_legacy"
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
 
 [tool.setuptools.packages.find]
-include = ["aprx_tools*"]
+include = ["cimkit_git*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

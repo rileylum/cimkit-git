@@ -28,7 +28,7 @@ def pack(src_dir: str, output_path: str = None, transform=IDENTITY) -> Path:
     """
     src = Path(src_dir)
     if not src.is_dir():
-        sys.exit(f"aprx-tools: {src} is not a directory")
+        sys.exit(f"cimkit-git: {src} is not a directory")
 
     if output_path:
         out = Path(output_path)

@@ -26,9 +26,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from aprx_tools.explode import explode
-from aprx_tools.hooks import hook_pre_commit, hook_pre_push
-from aprx_tools.transform import explode_transform
+from cimkit_git.explode import explode
+from cimkit_git.hooks import hook_pre_commit, hook_pre_push
+from cimkit_git.transform import explode_transform
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SIMPLE_APRX = FIXTURES / "simple" / "simple.aprx"
@@ -56,7 +56,7 @@ def repo(tmp_path):
 
 def _conn_value(aprx: Path) -> str:
     """The real connection string baked into the fixture binary."""
-    from aprx_tools.connections import collect_field_values
+    from cimkit_git.connections import collect_field_values
     with zipfile.ZipFile(aprx) as zf:
         for name in zf.namelist():
             if name.endswith(".json"):
@@ -99,7 +99,7 @@ def _make_simple_project(repo: Path, name: str) -> SimpleNamespace:
 def _make_undeclared_project(repo: Path, name: str) -> SimpleNamespace:
     """A Project with **no** aprx.json — its Mode is undeclared, so the pre-commit hook
     must block it (ADR-0001) rather than guess simple or env. The binary and a source
-    tree exist (a developer who never ran `aprx install`)."""
+    tree exist (a developer who never ran `git cim install`)."""
     proj = repo / name
     proj.mkdir()
     aprx = proj / f"{name}.aprx"
@@ -297,7 +297,7 @@ def test_stage_packed_binary_reraises_non_ignore_failure(repo):
     # The tolerance is scoped to git's ignore-rejection only: a `git add` that fails for any
     # *other* reason (here a path that does not exist and is not ignored) must still propagate
     # exactly as the old check=True staging did — never be silently swallowed.
-    from aprx_tools.hooks import _stage_packed_binary
+    from cimkit_git.hooks import _stage_packed_binary
 
     with pytest.raises(subprocess.CalledProcessError):
         _stage_packed_binary(repo, "does/not/exist.aprx")
@@ -309,7 +309,7 @@ def test_stage_packed_binary_reraises_failure_on_ignored_path(repo):
     # exit 1) must still propagate. Keying tolerance on `check-ignore` alone would misread this
     # as the benign ignore case and swallow a real error — the regression this guards.
     (repo / ".gitignore").write_text("ghost.aprx\n")
-    from aprx_tools.hooks import _stage_packed_binary
+    from cimkit_git.hooks import _stage_packed_binary
 
     with pytest.raises(subprocess.CalledProcessError):
         _stage_packed_binary(repo, "ghost.aprx")        # ignored AND nonexistent
@@ -441,7 +441,7 @@ def test_unreadable_aprx_json_blocks_binary_commit_without_leaking(repo, deny_re
 
 def test_two_undeclared_projects_are_both_named_in_one_block(repo, monkeypatch):
     # Issue 0008: a single commit staging two undeclared Projects must name BOTH in one
-    # run — each with its `aprx install` hint — instead of reporting only the
+    # run — each with its `git cim install` hint — instead of reporting only the
     # alphabetically-first and forcing a fix-and-recommit drip. The plan already collects
     # every offending Project; this guards that the reporting step no longer throws the
     # rest away.
@@ -455,7 +455,7 @@ def test_two_undeclared_projects_are_both_named_in_one_block(repo, monkeypatch):
 
     msg = str(exc.value)
     assert "alpha" in msg and "bravo" in msg                 # both Projects named
-    assert msg.count("aprx install") == 2                    # each carries its own hint
+    assert msg.count("git cim install") == 2                    # each carries its own hint
     # Nothing was staged for either Project — the block aborts before any explode/pack.
     assert not any(n.startswith("alpha/alpha.aprx.src/") for n in _staged_names(repo))
     assert not any(n.startswith("bravo/bravo.aprx.src/") for n in _staged_names(repo))
@@ -472,7 +472,7 @@ def test_undeclared_project_staged_both_ways_is_named_once(repo, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         hook_pre_commit()
 
-    assert str(exc.value).count("aprx install") == 1         # one Project → one message
+    assert str(exc.value).count("git cim install") == 1         # one Project → one message
 
 
 def test_single_undeclared_project_blocks_with_one_message(repo, monkeypatch):
@@ -487,7 +487,7 @@ def test_single_undeclared_project_blocks_with_one_message(repo, monkeypatch):
 
     msg = str(exc.value)
     assert "solo" in msg
-    assert msg.count("aprx install") == 1
+    assert msg.count("git cim install") == 1
 
 
 def test_unreadable_aprx_json_does_not_block_unrelated_commit(repo, deny_reading, monkeypatch):

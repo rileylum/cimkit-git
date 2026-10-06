@@ -15,9 +15,9 @@ import json
 
 import pytest
 
-from aprx_tools import connections as conn
-from aprx_tools.project_config import ProjectConfig
-from aprx_tools.transform import Substitution, SubstitutionError
+from cimkit_git import connections as conn
+from cimkit_git.project_config import ProjectConfig
+from cimkit_git.transform import Substitution, SubstitutionError
 
 
 # --------------------------------------------------------------------------- #

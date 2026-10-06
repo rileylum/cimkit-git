@@ -3,8 +3,8 @@ import shutil
 
 import pytest
 
-from aprx_tools.explode import explode
-from aprx_tools.verify import verify
+from cimkit_git.explode import explode
+from cimkit_git.verify import verify
 
 
 # --------------------------------------------------------------------------- #
@@ -176,11 +176,11 @@ def test_verify_simple_problems_collected_not_aborting(
 
 def test_verify_unresolved_project_directs_to_install(tmp_path, simple_aprx, capsys):
     """A Project with no `aprx.json` declares no Mode. Strict resolution must surface
-    the "run `aprx install`" guidance rather than silently passing (ADR-0001) — as a
+    the "run `git cim install`" guidance rather than silently passing (ADR-0001) — as a
     collected failure (exit 1), not a loop-aborting hard exit, so the repo-wide gate
     keeps checking every other project."""
     aprx = tmp_path / "simple.aprx"
     shutil.copy(simple_aprx, aprx)
     src = explode(str(aprx))                    # source exists, but no aprx.json beside it
     assert verify(str(src)) == 1
-    assert "aprx install" in capsys.readouterr().err
+    assert "git cim install" in capsys.readouterr().err

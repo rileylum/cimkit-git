@@ -41,13 +41,13 @@ def deny_reading(monkeypatch):
 @pytest.fixture
 def exploded(tmp_path, simple_aprx) -> Path:
     """Exploded simple.aprx — reused by pack and compare tests."""
-    from aprx_tools.explode import explode
+    from cimkit_git.explode import explode
     return explode(str(simple_aprx), str(tmp_path / "simple.aprx.src"))
 
 
 def _first_connection_value(aprx: Path) -> str:
     """The actual workspaceConnectionString stored in the fixture."""
-    from aprx_tools.connections import collect_field_values
+    from cimkit_git.connections import collect_field_values
     with zipfile.ZipFile(aprx) as zf:
         for name in zf.namelist():
             if name.endswith(".json"):
@@ -91,8 +91,8 @@ def explode_env():
     same `transform.explode_transform` the CLI uses (mode-selected), so the tests
     exercise the real composition root, not a re-implementation. `project_dir` defaults
     to the directory holding the .aprx (where its `aprx.json` lives)."""
-    from aprx_tools.explode import explode
-    from aprx_tools.transform import explode_transform
+    from cimkit_git.explode import explode
+    from cimkit_git.transform import explode_transform
 
     def _go(aprx, project_dir=None, output_dir=None):
         transform = explode_transform(project_dir or Path(aprx).parent)
@@ -113,8 +113,8 @@ def pack_env():
     `transform.pack_transform` the CLI uses (mode-selected, precedence
     `connections_file` > `env` > `local.json`). `project_dir` defaults to the parent of
     the src dir — the project directory where `aprx.json` lives."""
-    from aprx_tools.pack import pack
-    from aprx_tools.transform import pack_transform
+    from cimkit_git.pack import pack
+    from cimkit_git.transform import pack_transform
 
     def _go(src, output=None, project_dir=None, env=None, connections_file=None):
         transform = pack_transform(project_dir or Path(src).resolve().parent,

@@ -2,7 +2,7 @@ import json
 import zipfile
 from pathlib import Path
 
-from aprx_tools.explode import explode
+from cimkit_git.explode import explode
 
 
 def test_default_output_name(tmp_path, simple_aprx):

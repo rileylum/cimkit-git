@@ -1,7 +1,7 @@
 name: release
 
 # Publishes the Python package to PyPI when a GitHub Release is published. The
-# tag should match the version declared in pyproject.toml / aprx_tools/__init__.py
+# tag should match the version declared in pyproject.toml / cimkit_git/__init__.py
 # (e.g. v0.1.0). See "Releasing" in the README for the one-time registry setup
 # and the per-release version-bump steps.
 on:
@@ -14,12 +14,12 @@ jobs:
     name: Publish to PyPI
     runs-on: ubuntu-latest
     # Trusted publishing (OIDC) — no API token is stored. Configure a publisher
-    # on PyPI for project "aprx-tools" pointing at this repo, workflow
+    # on PyPI for project "cimkit-git" pointing at this repo, workflow
     # "release.yml", environment "pypi" (a *pending* publisher before the first
     # upload, since the project does not exist on PyPI yet).
     environment:
       name: pypi
-      url: https://pypi.org/p/aprx-tools
+      url: https://pypi.org/p/cimkit-git
     permissions:
       id-token: write # required to mint the OIDC token PyPI verifies
     steps:

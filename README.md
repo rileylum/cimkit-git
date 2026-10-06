@@ -1,6 +1,10 @@
-# aprx-tools
+# cimkit-git
 
-Version-control tooling for ArcGIS `.aprx` project files.
+Version-control tooling for ArcGIS `.aprx` project files. Part of the
+[cimkit](https://github.com/rileylum/cimkit) suite of headless ArcGIS tools.
+
+> **Formerly `aprx-tools`.** If you used `aprx-tools` 0.2.x, see
+> [Migrating from aprx-tools](#migrating-from-aprx-tools).
 
 An `.aprx` file is a zip archive of JSON and XML. This tool explodes it into
 a diffable directory (`.aprx.src/`), packs it back, and installs git hooks so
@@ -27,9 +31,9 @@ regenerates the `.aprx` automatically.
 
 ## Two modes
 
-aprx-tools runs in one of two modes. **The mode is declared once, explicitly, in a
+cimkit-git runs in one of two modes. **The mode is declared once, explicitly, in a
 committed `aprx.json`** (`"mode": "simple" | "env"`) and read from there by every
-command and every teammate's hooks. You choose it when you run `aprx install` (see
+command and every teammate's hooks. You choose it when you run `git cim install` (see
 [How the mode is declared](#how-the-mode-is-declared)); you never pass a flag to
 `explode`/`pack` to switch between them.
 
@@ -37,7 +41,7 @@ command and every teammate's hooks. You choose it when you run `aprx install` (s
 |---|---|---|
 | **When** | default — version control only | opt-in — version control + connection substitution |
 | **`aprx.json`** | `{ "mode": "simple" }` | `{ "mode": "env", … }` |
-| **Setup** | `aprx install` (records `mode: simple`) | `aprx connections init` + per-environment files (see [Setup](#setup)) |
+| **Setup** | `git cim install` (records `mode: simple`) | `git cim connections init` + per-environment files (see [Setup](#setup)) |
 | **Connection strings** | stored verbatim in the committed source | stored as `@@tokens@@`; real values live in per-environment files |
 | **`explode` does** | pretty-print JSON/XML | pretty-print **+** reverse-tokenise values → `@@tokens@@` |
 | **`pack` does** | minify JSON | minify **+** substitute `@@tokens@@` → values for one environment |
@@ -55,13 +59,13 @@ The mode lives in the project's committed `aprx.json` and is **read, never guess
 There is no detection heuristic: the tool does not sniff for a `connections/`
 directory or a `local.json` to infer the mode. A project with no `aprx.json`, or one
 whose `aprx.json` has no `mode`, is a **hard error** that tells you to run
-`aprx install` (see [Upgrading an existing repository](#upgrading-an-existing-repository)).
+`git cim install` (see [Upgrading an existing repository](#upgrading-an-existing-repository)).
 
-`aprx install` is where the mode is set, the first time anyone runs it:
+`git cim install` is where the mode is set, the first time anyone runs it:
 
 - **Interactively**, it prompts: `simple` (version control only) or `env` (version
   control + connection substitution).
-- **`aprx install --mode simple|env`** records the mode without prompting — use this
+- **`git cim install --mode simple|env`** records the mode without prompting — use this
   in scripts and CI.
 - In a **non-interactive shell with no `--mode` and no existing `aprx.json`**, it
   defaults to **simple mode** and prints a loud warning telling you environment mode
@@ -70,12 +74,12 @@ whose `aprx.json` has no `mode`, is a **hard error** that tells you to run
   `--mode` is **refused** (not silently applied), because the mode is a shared,
   committed team decision. To change modes, edit `aprx.json` deliberately.
 
-> **Run `aprx install` from the project's directory** — the one that holds (or will
+> **Run `git cim install` from the project's directory** — the one that holds (or will
 > hold) the `.aprx` and its `aprx.json`. `install` writes `aprx.json` into the
 > directory you run it from, while the git hooks always install at the repo root. If
 > your `.aprx` lives in a subdirectory and you run `install` at the repo root, the
 > mode is recorded where `explode`/`pack` won't look for it — and you'll hit the
-> "no `aprx.json` — run `aprx install`" error right after running exactly that.
+> "no `aprx.json` — run `git cim install`" error right after running exactly that.
 
 Because the mode is a committed value rather than three independent file-presence
 signals, two developers can never resolve the same repo to different modes, and an
@@ -89,7 +93,7 @@ Requires **Python 3.9+**.
 ### From PyPI
 
 ```sh
-pip install aprx-tools          # or: uv pip install / pipx install aprx-tools
+pip install cimkit-git          # or: uv pip install / pipx install cimkit-git
 ```
 
 ### From source
@@ -98,17 +102,34 @@ Works without waiting on a release — install straight from the repository:
 
 ```sh
 # directly from GitHub
-pip install "git+https://github.com/rileylum/aprx-tools.git"
+pip install "git+https://github.com/rileylum/cimkit-git.git"
 
 # or from a local clone (use -e for an editable/dev install)
-git clone https://github.com/rileylum/aprx-tools.git
-cd aprx-tools
+git clone https://github.com/rileylum/cimkit-git.git
+cd cimkit-git
 pip install .
 ```
 
-After installing, run `aprx install` in your repository to set up the git hooks. No
+The package installs a `git-cim` command, which git runs as `git cim`. Use
+`git cim -h` for help: git turns `git cim --help` into a man-page lookup, and
+cimkit-git ships no man page.
+
+After installing, run `git cim install` in your repository to set up the git hooks. No
 specific package manager is required in your project — the hooks use whatever Python
 interpreter is available in your environment.
+
+## Migrating from aprx-tools
+
+`aprx-tools` was renamed to `cimkit-git` in 0.3.0. Nothing in your repository
+changes: `aprx.json`, `connections/` and `*.aprx.src/` keep the same names and
+formats.
+
+1. Install the new package: `pip uninstall aprx-tools && pip install cimkit-git`.
+2. Re-run `git cim install` in each repository. Your old hooks call
+   `python3 -m aprx_tools`, which no longer exists, so they fail until you do this.
+   `install` recognises hooks written by aprx-tools and replaces them.
+3. Replace `aprx` with `git cim` in CI scripts. The `aprx` command still works in
+   0.3.x but prints a deprecation warning, and a later release removes it.
 
 ## Upgrading an existing repository
 
@@ -118,48 +139,48 @@ interpreter is available in your environment.
 > on record, so the first command you run against it will stop with:
 >
 > ```
-> aprx-tools: <dir> has no aprx.json — this project has no declared mode;
-> run `aprx install` to declare it
+> cimkit-git: <dir> has no aprx.json — this project has no declared mode;
+> run `git cim install` to declare it
 > ```
 >
 > (or, if an `aprx.json` exists but predates the `mode` field, `… declares no 'mode'
-> — run `aprx install` to declare it`).
+> — run `git cim install` to declare it`).
 
 **The rule, plainly: no `aprx.json`, or an `aprx.json` with no `mode`, → run
-`aprx install`.** That single command records the mode and unblocks the repo — there
+`git cim install`.** That single command records the mode and unblocks the repo — there
 is no automatic back-compat inference.
 
 To upgrade, **from each project's directory** (the one holding the `.aprx` — see the
 note in [How the mode is declared](#how-the-mode-is-declared)):
 
 ```sh
-aprx install                 # prompts: simple or env, then records it in aprx.json
+git cim install                 # prompts: simple or env, then records it in aprx.json
 # or, non-interactively:
-aprx install --mode simple   # version control only
-aprx install --mode env      # version control + connection substitution
+git cim install --mode simple   # version control only
+git cim install --mode env      # version control + connection substitution
 ```
 
 Commit the resulting `aprx.json` so the whole team inherits the same mode. A project
 that was already using connection substitution (it has a `connections/` directory)
 should choose **`env`**; a plain version-control project chooses **`simple`**. You
 only do this once per project; teammates who pull the committed `aprx.json` just run
-`aprx install` to get the hooks and the mode is already there for them.
+`git cim install` to get the hooks and the mode is already there for them.
 
 ## Usage
 
 ```sh
 # Install git hooks into the current repository
-aprx install
+git cim install
 
 # Manually explode or pack
-aprx explode map.aprx          # → map.aprx.src/
-aprx pack    map.aprx.src/     # → map.aprx
+git cim explode map.aprx          # → map.aprx.src/
+git cim pack    map.aprx.src/     # → map.aprx
 
 # Compare two .aprx files (or directories) semantically
-aprx compare a.aprx b.aprx
+git cim compare a.aprx b.aprx
 ```
 
-After `aprx install`, the workflow is automatic:
+After `git cim install`, the workflow is automatic:
 
 - **`git add map.aprx && git commit`** — the pre-commit hook explodes the
   `.aprx`, stages the source files, and commits both.
@@ -173,7 +194,7 @@ After `aprx install`, the workflow is automatic:
 This is the setup and detail for **environment mode** — the opt-in mode from
 [Two modes](#two-modes). If you only need a diffable, version-controlled `.aprx`
 and do not promote across environments, you do **not** need any of this; stay in
-simple mode (just `aprx install`).
+simple mode (just `git cim install`).
 
 `.aprx` files embed database connection strings directly in their JSON. Teams that
 promote work across environment branches (dev → uat → prd) need each environment to
@@ -181,7 +202,7 @@ point at its own database — but those connection strings would otherwise trave
 every merge and break deploys, forcing a manual "fix the connections" commit after
 each promotion.
 
-aprx-tools solves this by keeping the committed source **environment-neutral**:
+cimkit-git solves this by keeping the committed source **environment-neutral**:
 connection strings are stored as `@@tokens@@`, and the real values live in
 per-environment files. `pack` substitutes tokens → values for a chosen environment;
 `explode` reverse-tokenises values → tokens.
@@ -195,7 +216,7 @@ every command reads back; see [How the mode is declared](#how-the-mode-is-declar
 **1. Scaffold the config from the existing `.aprx`:**
 
 ```sh
-aprx connections init map.aprx
+git cim connections init map.aprx
 ```
 
 This scans the project and writes three files:
@@ -218,17 +239,17 @@ echo "*.aprx"      >> .gitignore   # derived artifact, built on demand
 ```sh
 cp local.json.example local.json          # fill in your local paths
 # add connections/uat.json, connections/prd.json — same keys as dev.json
-aprx connections check                     # assert every env defines the same keys
+git cim connections check                     # assert every env defines the same keys
 ```
 
 **4. Re-explode so the committed source becomes tokenised:**
 
 ```sh
-aprx explode map.aprx                       # connection strings become @@tokens@@
+git cim explode map.aprx                       # connection strings become @@tokens@@
 ```
 
 From here the hooks take over: commit stages only the tokenised source, and
-`aprx build` / the post-merge hook rebuild your working `.aprx` from source +
+`git cim build` / the post-merge hook rebuild your working `.aprx` from source +
 `local.json`.
 
 ### What actually gets replaced (and what doesn't)
@@ -252,7 +273,7 @@ Two consequences worth knowing:
   tokenises nothing and pack substitutes nothing. The one visible effect is that
   `--env uat` becomes a hard error (`connections/uat.json` doesn't exist) instead of a
   silent no-op.
-- If you have `connections/*.json` but **no `local.json`**, a bare `aprx pack dir`
+- If you have `connections/*.json` but **no `local.json`**, a bare `git cim pack dir`
   (no `--env`/`--connections`) does not substitute — it would leave `@@tokens@@`
   literals in the binary. Build for a specific environment with `--env`, or keep a
   `local.json` for day-to-day work.
@@ -268,11 +289,11 @@ Two consequences worth knowing:
 
 - **Developers** open a working `map.aprx` built from the source + their `local.json`.
   The `post-merge` / `post-checkout` hooks rebuild it automatically after pulls and
-  branch switches; `aprx build` does it manually.
+  branch switches; `git cim build` does it manually.
 - **On commit**, the pre-commit hook re-explodes the working `.aprx`, re-tokenising
   it, and stages only the neutral source — the binary is never committed.
-- **CI** verifies every PR with `aprx verify` and builds the environment-specific
-  artifact with `aprx pack map.aprx.src --env uat`, never reading the committed
+- **CI** verifies every PR with `git cim verify` and builds the environment-specific
+  artifact with `git cim pack map.aprx.src --env uat`, never reading the committed
   binary. See [Continuous integration](#continuous-integration).
 
 Because connection strings never live in the merged content, a PR merge can't carry
@@ -291,7 +312,7 @@ environment-specific fields (e.g. service URLs), list them in `aprx.json`:
 
 ## Continuous integration
 
-The CI gate is a single command — **`aprx verify`** — that exits non-zero on
+The CI gate is a single command — **`git cim verify`** — that exits non-zero on
 failure. It is not GitHub-specific: it is a plain CLI check, so any runner invokes
 it the same way. For an environment-managed project it asserts the committed source
 is fully tokenised (nobody committed without the hooks) and that every token
@@ -302,13 +323,13 @@ binary is OK by default — the source is the canonical truth and the `.aprx` a
 regenerated artifact, so a deliberately source-only repo is not failed.
 
 Teams that *want* the binary committed can opt back into the stricter check with
-`"commit_binary": true` in the project's `aprx.json` (written by `aprx install`):
+`"commit_binary": true` in the project's `aprx.json` (written by `git cim install`):
 the binary must then be **present and in sync**, restoring detection of a forgotten
 binary. `verify` inspects the binary on disk (the working tree), which in a clean CI
 checkout is exactly what is committed — so note that a *local* run can pass on an
 untracked or git-ignored binary that a clean CI checkout would flag.
 
-The job body is identical everywhere — `pip install aprx-tools && aprx verify` —
+The job body is identical everywhere — `pip install cimkit-git && git cim verify` —
 only the trigger differs:
 
 **GitHub Actions** — `.github/workflows/aprx.yml`
@@ -323,8 +344,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.x" }
-      - run: pip install aprx-tools
-      - run: aprx verify
+      - run: pip install cimkit-git
+      - run: git cim verify
 ```
 
 **GitLab CI** — `.gitlab-ci.yml`
@@ -333,8 +354,8 @@ jobs:
 aprx-verify:
   image: python:3
   script:
-    - pip install aprx-tools
-    - aprx verify
+    - pip install cimkit-git
+    - git cim verify
 ```
 
 **Azure Pipelines** — `azure-pipelines.yml`
@@ -342,19 +363,19 @@ aprx-verify:
 ```yaml
 steps:
   - script: |
-      pip install aprx-tools
-      aprx verify
-    displayName: aprx verify
+      pip install cimkit-git
+      git cim verify
+    displayName: git cim verify
 ```
 
 **Any other runner** (Bitbucket, Jenkins, pre-commit.ci, a local pre-push) — just
 run the command:
 
 ```sh
-pip install aprx-tools && aprx verify
+pip install cimkit-git && git cim verify
 ```
 
-The same gate runs **locally as a `pre-push` hook** (installed by `aprx install`), so
+The same gate runs **locally as a `pre-push` hook** (installed by `git cim install`), so
 you catch a drifted or incomplete-across-environments source before it leaves your
 machine instead of on a red PR — `git push --no-verify` bypasses it for an
 intentional work-in-progress push.
@@ -365,7 +386,7 @@ but cannot merge a drifted or unbuildable source. To deploy, add a step that bui
 the target environment's artifact and publishes it:
 
 ```sh
-aprx pack map.aprx.src --env "$TARGET_ENV" -o map.aprx   # then upload map.aprx
+git cim pack map.aprx.src --env "$TARGET_ENV" -o map.aprx   # then upload map.aprx
 ```
 
 ## Releasing
@@ -377,14 +398,14 @@ GitHub Release builds and uploads the Python package to PyPI.
 ### One-time setup
 
 PyPI uses trusted publishing (OIDC) — no API token is stored. On PyPI, add a
-*pending* publisher for project `aprx-tools` → owner `rileylum`, repository
-`aprx-tools`, workflow `release.yml`, environment `pypi`. (It is *pending* because
+*pending* publisher for project `cimkit-git` → owner `rileylum`, repository
+`cimkit-git`, workflow `release.yml`, environment `pypi`. (It is *pending* because
 the project does not exist on PyPI until the first upload.)
 
 ### Cutting a release
 
 1. Bump the version in **both** places — they must stay in sync: `pyproject.toml`
-   and `aprx_tools/__init__.py`.
+   and `cimkit_git/__init__.py`.
 2. Commit, then publish a GitHub Release whose tag is the version prefixed with `v`
    (e.g. `v0.1.0`). The `release` workflow does the rest.
 
@@ -409,15 +430,15 @@ The pre-commit hook already reads the staged JSON. It can scan connection string
 ### Sharing
 
 **Layer export to `.lyrx`**
-`.lyrx` files are self-contained, portable layer packages — the standard way to share a layer's symbology, definition query, and data source with another team or project. Because the layer JSON inside an `.aprx` uses the same CIM schema as a standalone `.lyrx`, aprx-tools can export individual layers without ArcPy: `aprx export-layer map.aprx LGA_Boundaries`. This is not a version control strategy (layouts, map settings, bookmarks, and connections are not in `.lyrx`), but it is a useful packaging step when a colleague needs a specific layer rather than the whole project.
+`.lyrx` files are self-contained, portable layer packages — the standard way to share a layer's symbology, definition query, and data source with another team or project. Because the layer JSON inside an `.aprx` uses the same CIM schema as a standalone `.lyrx`, cimkit-git can export individual layers without ArcPy: `git cim export-layer map.aprx LGA_Boundaries`. This is not a version control strategy (layouts, map settings, bookmarks, and connections are not in `.lyrx`), but it is a useful packaging step when a colleague needs a specific layer rather than the whole project.
 
 ### Diffing and history
 
-**`aprx diff` CLI**
-`aprx diff a.aprx b.aprx` — a human-readable summary of structural changes between two project files or two git refs. Covers the four things teams actually want: layers added/removed/reordered, connection strings changed, definition queries changed, title/metadata changed. Does not require ArcPy.
+**`git cim diff` CLI**
+`git cim diff a.aprx b.aprx` — a human-readable summary of structural changes between two project files or two git refs. Covers the four things teams actually want: layers added/removed/reordered, connection strings changed, definition queries changed, title/metadata changed. Does not require ArcPy.
 
-**`aprx compare` against git history**
-A wrapper around `git diff` that formats output for GIS users rather than showing raw JSON. `aprx log` or `aprx show HEAD~3` — answers "what changed in this project over the last week" in terms of layers and symbology, not JSON keys.
+**`git cim compare` against git history**
+A wrapper around `git diff` that formats output for GIS users rather than showing raw JSON. `git cim log` or `git cim show HEAD~3` — answers "what changed in this project over the last week" in terms of layers and symbology, not JSON keys.
 
 **CI diff reporting**
 A GitHub Actions step (or generic CI script) that posts a structured diff as a PR comment: which layers were added, which connection strings changed, which definition queries were modified. Makes map project changes reviewable in the same workflow as code changes, without requiring reviewers to open ArcGIS Pro.
@@ -425,18 +446,22 @@ A GitHub Actions step (or generic CI script) that posts a structured diff as a P
 ### CI/CD and automation
 
 **`gitattributes` textconv**
-A `.gitattributes` entry that tells GitHub to run `aprx explode` as a textconv driver when rendering diffs. GitHub's PR UI shows the JSON diff inline instead of "binary file changed". No CI required — just config. The lowest-effort improvement available to any team adopting the tool today.
+A `.gitattributes` entry that tells GitHub to run `git cim explode` as a textconv driver when rendering diffs. GitHub's PR UI shows the JSON diff inline instead of "binary file changed". No CI required — just config. The lowest-effort improvement available to any team adopting the tool today.
 
 **Connection string enforcement**
-`aprx verify` already catches hookless commits and unbuildable environments (see
+`git cim verify` already catches hookless commits and unbuildable environments (see
 [Continuous integration](#continuous-integration)). The remaining piece is *policy*:
 asserting connection strings match the expected pattern for the target branch — dev
 must not reference prod servers, prod must not reference localhost — to catch the
 wrong-environment deployment error before it reaches the environment.
 
+**Moved to other cimkit packages.** Building and publishing per-environment
+artifacts on push, and publishing to ArcGIS Enterprise / Portal, now belong to
+`cimkit` (the pipeline) and `cimkit-deploy`. The two items below are kept for context.
+
 **Automated connection string substitution on push**
 The substitution itself now ships (see [Environment mode](#environment-mode-connection-strings));
-`aprx pack --env <name>` applies
+`git cim pack --env <name>` applies
 a branch's connection file at pack time. What remains is the packaging glue: a
 GitHub Actions workflow on push to environment branches (`uat`, `trn`, `prd`) that
 runs the build and publishes the artifact, so no developer has to remember to do it
@@ -501,5 +526,5 @@ make dev-setup   # creates the venv, installs dependencies, installs dev hooks
 make test        # run the test suite
 ```
 
-`uv` is only required to work on `aprx-tools` itself. Projects that install
+`uv` is only required to work on `cimkit-git` itself. Projects that install
 the package are free to use pip, conda, poetry, or any other tool.

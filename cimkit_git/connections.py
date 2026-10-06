@@ -54,14 +54,14 @@ def resolve_connections_file(project_dir, env=None, connections_file=None) -> "P
     if connections_file:
         p = Path(connections_file)
         if not p.exists():
-            sys.exit(f"aprx-tools: connections file {p} not found")
+            sys.exit(f"cimkit-git: connections file {p} not found")
         return p
     if env:
         if project_dir is None:
-            sys.exit("aprx-tools: --env requires a project with a connections/ directory")
+            sys.exit("cimkit-git: --env requires a project with a connections/ directory")
         p = Path(project_dir) / CONNECTIONS_DIR / f"{env}.json"
         if not p.exists():
-            sys.exit(f"aprx-tools: no connections file for environment {env!r} (expected {p})")
+            sys.exit(f"cimkit-git: no connections file for environment {env!r} (expected {p})")
         return p
     if project_dir is not None:
         local = Path(project_dir) / LOCAL_FILE
@@ -98,15 +98,15 @@ def read_json_or_exit(path):
         raw = path.read_text(encoding="utf-8")
     except OSError as err:
         sys.exit(
-            f"aprx-tools: {path} could not be read ({err}) — "
+            f"cimkit-git: {path} could not be read ({err}) — "
             f"check the file's permissions and that it is a regular file"
         )
     except UnicodeDecodeError as err:
-        sys.exit(f"aprx-tools: {path} is not valid UTF-8 text ({err})")
+        sys.exit(f"cimkit-git: {path} is not valid UTF-8 text ({err})")
     try:
         return json.loads(raw)
     except json.JSONDecodeError as err:
-        sys.exit(f"aprx-tools: {path} is not valid JSON ({err})")
+        sys.exit(f"cimkit-git: {path} is not valid JSON ({err})")
 
 
 def load_connections(path) -> "dict[str, str]":
@@ -115,7 +115,7 @@ def load_connections(path) -> "dict[str, str]":
     (a JSON *object*) carries the connection-file-specific wording."""
     data = read_json_or_exit(path)
     if not isinstance(data, dict):
-        sys.exit(f"aprx-tools: {path} must be a JSON object of key -> connection string")
+        sys.exit(f"cimkit-git: {path} must be a JSON object of key -> connection string")
     return data
 
 
@@ -131,7 +131,7 @@ def build_reverse_map(files) -> "dict[str, str]":
             existing = reverse.get(value)
             if existing is not None and existing != key:
                 sys.exit(
-                    f"aprx-tools: connection value {value!r} is mapped to both "
+                    f"cimkit-git: connection value {value!r} is mapped to both "
                     f"{existing!r} and {key!r} — a value must map to one key"
                 )
             reverse[value] = key

@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- **Renamed `aprx-tools` to `cimkit-git`**, the version-control package of the cimkit
+  suite. The PyPI name, import name (`cimkit_git`) and command (`git cim`, installed as
+  `git-cim`) all change. Repository files (`aprx.json`, `connections/`, `*.aprx.src/`)
+  do not. Hooks installed by aprx-tools call `python3 -m aprx_tools` and fail until you
+  re-run `git cim install`, which recognises and replaces them. See
+  [Migrating from aprx-tools](README.md#migrating-from-aprx-tools).
+
+### Deprecated
+
+- The `aprx` command. It still works but warns; use `git cim`.
+
 ### Changed
 
 - The strict undeclared-Project guard (ADR-0001) now fires on the **Source-only**

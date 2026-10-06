@@ -2,8 +2,8 @@ import json
 import zipfile
 from pathlib import Path
 
-from aprx_tools.compare import compare
-from aprx_tools.pack import pack
+from cimkit_git.compare import compare
+from cimkit_git.pack import pack
 
 
 def _make_modified_aprx(original: Path, dest: Path, filename: str, data: bytes) -> Path:

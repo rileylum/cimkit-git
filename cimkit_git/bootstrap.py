@@ -1,4 +1,4 @@
-"""`aprx connections init` / `aprx connections check` — scaffold and validate the
+"""`git cim connections init` / `git cim connections check` — scaffold and validate the
 per-environment connection files."""
 
 import json
@@ -50,14 +50,14 @@ def _init_fields_token(project: Path, existing: dict) -> "tuple[list, str]":
     ``init`` is what first declares a Project's mode, so it can run *before* any
     ``aprx.json`` exists — there is no ``ProjectConfig`` to resolve yet, so it falls
     back to any fields/token the file already carries (a legacy mode-less config) or
-    the engine defaults. But when a mode is already declared (``aprx install --mode
+    the engine defaults. But when a mode is already declared (``git cim install --mode
     env`` ran first), ``ProjectConfig`` is the source of ``fields``/``token`` rather
     than a re-derived copy. A committed ``mode: simple`` is a deliberate team
     decision; ``init`` refuses to silently switch it to ``env``."""
     declared = existing.get("mode")
     if declared == SIMPLE:
         sys.exit(
-            f"aprx-tools: {project / conn.CONFIG_FILENAME} already declares "
+            f"cimkit-git: {project / conn.CONFIG_FILENAME} already declares "
             f"mode 'simple'; connections init would switch it to 'env'.\n"
             f"  Edit aprx.json's \"mode\" to \"env\" to upgrade, then re-run."
         )
@@ -76,7 +76,7 @@ def _init_fields_token(project: Path, existing: dict) -> "tuple[list, str]":
 def connections_init(aprx_file: str) -> None:
     aprx = Path(aprx_file)
     if not aprx.exists():
-        sys.exit(f"aprx-tools: {aprx} not found")
+        sys.exit(f"cimkit-git: {aprx} not found")
 
     # init *establishes* the project at the .aprx's directory; it cannot resolve a
     # ProjectConfig for a project it is about to create, so it reads aprx.json raw
@@ -93,7 +93,7 @@ def connections_init(aprx_file: str) -> None:
     # blow up with a raw AttributeError.
     existing = conn.read_json_or_exit(config_path) if config_path.exists() else {}
     if not isinstance(existing, dict):
-        sys.exit(f"aprx-tools: {config_path} must be a JSON object (the project config)")
+        sys.exit(f"cimkit-git: {config_path} must be a JSON object (the project config)")
     fields, token = _init_fields_token(project, existing)
 
     # The distinct connection strings to scaffold keys for. The field-walk lives behind
@@ -103,7 +103,7 @@ def connections_init(aprx_file: str) -> None:
     cfg = ProjectConfig(dir=project, mode=ENV, fields=tuple(fields), token=token)
     values = cfg.discovered_values(entry.parsed for entry in parsed_json_entries(aprx))
     if not values:
-        sys.exit(f"aprx-tools: no connection strings found in fields {fields} — "
+        sys.exit(f"cimkit-git: no connection strings found in fields {fields} — "
                  f"nothing to scaffold")
 
     mapping: dict = {}
@@ -116,7 +116,7 @@ def connections_init(aprx_file: str) -> None:
 
     # aprx.json — declare environment mode and record the resolved fields/token,
     # preserving any other keys already present. Funnels through the same writer as
-    # `aprx install` (project_config.write_mode, which drops the old mode) so the two
+    # `git cim install` (project_config.write_mode, which drops the old mode) so the two
     # never emit divergent shapes; the explicit fields/token override whatever the
     # file held with the values we just resolved/scanned against.
     write_mode(config_path, ENV, {**existing, "fields": fields, "token": token})
@@ -133,7 +133,7 @@ def connections_init(aprx_file: str) -> None:
     print("       *.aprx")
     print("  2. cp local.json.example local.json   # then fill in your local paths")
     print("  3. Create connections/uat.json, connections/prd.json with the same keys.")
-    print("  4. aprx explode <file>.aprx           # connection strings become @@tokens@@")
+    print("  4. git cim explode <file>.aprx           # connection strings become @@tokens@@")
 
 
 def connections_check() -> None:
@@ -146,7 +146,7 @@ def connections_check() -> None:
     cfg = ProjectConfig.load(Path.cwd())
     key_sets = cfg.connection_key_sets()  # {filename: {keys}}, env-only discovery via cfg
     if not key_sets:
-        sys.exit(f"aprx-tools: no connection files in {cfg.dir / conn.CONNECTIONS_DIR}")
+        sys.exit(f"cimkit-git: no connection files in {cfg.dir / conn.CONNECTIONS_DIR}")
 
     all_keys: set = set().union(*key_sets.values())
 

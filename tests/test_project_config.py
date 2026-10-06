@@ -11,8 +11,8 @@ import json
 
 import pytest
 
-from aprx_tools import connections as conn
-from aprx_tools.project_config import ProjectConfig
+from cimkit_git import connections as conn
+from cimkit_git.project_config import ProjectConfig
 
 
 # --------------------------------------------------------------------------- #
@@ -49,20 +49,20 @@ def test_load_reads_env_mode_with_explicit_fields_and_token(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Strict resolution (ADR-0001): no aprx.json / no mode -> "run aprx install"
+# Strict resolution (ADR-0001): no aprx.json / no mode -> "run git cim install"
 # --------------------------------------------------------------------------- #
 
 def test_load_missing_config_directs_to_install(tmp_path):
     with pytest.raises(SystemExit) as exc:
         ProjectConfig.load(tmp_path)
-    assert "aprx install" in str(exc.value)
+    assert "git cim install" in str(exc.value)
 
 
 def test_load_config_without_mode_directs_to_install(tmp_path):
     _write_config(tmp_path, fields=["url"])  # has config, but no mode
     with pytest.raises(SystemExit) as exc:
         ProjectConfig.load(tmp_path)
-    assert "aprx install" in str(exc.value)
+    assert "git cim install" in str(exc.value)
 
 
 def test_load_rejects_unknown_mode(tmp_path):

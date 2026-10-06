@@ -3,10 +3,10 @@ import zipfile
 
 import pytest
 
-from aprx_tools import connections as conn
-from aprx_tools.explode import explode
-from aprx_tools.compare import compare
-from aprx_tools.transform import SubstitutionError
+from cimkit_git import connections as conn
+from cimkit_git.explode import explode
+from cimkit_git.compare import compare
+from cimkit_git.transform import SubstitutionError
 
 
 # --------------------------------------------------------------------------- #

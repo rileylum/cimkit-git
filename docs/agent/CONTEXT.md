@@ -1,6 +1,6 @@
-# aprx-tools
+# cimkit-git
 
-aprx-tools makes ArcGIS `.aprx` projects version-controllable, and — when a project opts in — swaps environment-specific data connections in and out as the project moves between environments.
+cimkit-git makes ArcGIS `.aprx` projects version-controllable, and — when a project opts in — swaps environment-specific data connections in and out as the project moves between environments.
 
 ## Language
 

@@ -2,7 +2,7 @@
 (issue 0005).
 
 `build_working_copies` backs the never-blocking post-merge/checkout/stash hooks (and
-`aprx build`). When pack stopped taking `env=` and became connection-ignorant, the
+`git cim build`). When pack stopped taking `env=` and became connection-ignorant, the
 rebuild had to construct the transform itself. These tests pin the safety properties of
 that adaptation:
 
@@ -19,8 +19,8 @@ Full per-project mode reading is issue 0009; this only locks down the cutover's 
 import json
 import zipfile
 
-from aprx_tools.hooks import build_working_copies
-from aprx_tools.util import aprx_output_for
+from cimkit_git.hooks import build_working_copies
+from cimkit_git.util import aprx_output_for
 
 
 def _working_blob(src_dir):
