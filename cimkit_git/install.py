@@ -1,6 +1,6 @@
 """Install git hooks into the current (or specified) repository.
 
-`aprx install` is also the **opt-in point for a Project's Mode** (ADR-0001). On
+`git cim install` is also the **opt-in point for a Project's Mode** (ADR-0001). On
 first run it decides the Mode (`simple` | `env`) and records it in the committed
 `aprx.json`; every later run honours that declaration so the whole team's hooks
 behave identically. The decision and the config write live here; `ProjectConfig`
@@ -8,23 +8,25 @@ behave identically. The decision and the config write live here; `ProjectConfig`
 mode. (The git hooks themselves still presence-sniff today; issue 0009 switches
 them to read the recorded mode.)"""
 
-import json
 import stat
 import sys
 from pathlib import Path
 
-from .connections import CONFIG_FILENAME
+from .connections import CONFIG_FILENAME, read_json_or_exit
 from .project_config import ENV, MODES, SIMPLE, write_mode
 from .util import git_root
 
-MARKER = "managed-by: aprx-tools"
+MARKER = "managed-by: cimkit-git"
+# Hooks written before the rename carry this marker. Without it, install would treat
+# a 0.2.x user's own hooks as foreign and refuse to upgrade them.
+LEGACY_MARKERS = ("managed-by: aprx-tools",)
 
 _NON_TTY_WARNING = (
-    "aprx-tools: no TTY and no --mode given — defaulting to simple mode "
+    "cimkit-git: no TTY and no --mode given — defaulting to simple mode "
     "(version control only).\n"
     "  If this project needs connection substitution across deployment targets, "
     "that is environment mode;\n"
-    "  re-run with `aprx install --mode env` to opt in."
+    "  re-run with `git cim install --mode env` to opt in."
 )
 
 # Probe for a repo-local virtualenv Python, falling back to python3.
@@ -44,17 +46,17 @@ done
 
 def _hook_script(hook_name: str, blocking: bool, hint: bool = False) -> str:
     """Build a hook script. Blocking hooks fail the git operation on error;
-    non-blocking hooks (post-*) never block it. `hint` adds an "is aprx-tools
+    non-blocking hooks (post-*) never block it. `hint` adds an "is cimkit-git
     installed?" message — useful when failure usually means a missing install
     (pre-commit), but not for pre-push where the command prints its own reason."""
-    invoke = f'"$PYTHON" -m aprx_tools hook {hook_name}'
+    invoke = f'"$PYTHON" -m cimkit_git hook {hook_name}'
     if not blocking:
         tail = f"{invoke} || true\n"
     elif hint:
         tail = (
             f"{invoke} || {{\n"
-            f'    echo "aprx-tools: hook failed — is aprx-tools installed? '
-            f'(pip install aprx-tools)" >&2\n'
+            f'    echo "cimkit-git: hook failed — is cimkit-git installed? '
+            f'(pip install cimkit-git)" >&2\n'
             f"    exit 1\n"
             f"}}\n"
         )
@@ -84,20 +86,20 @@ def install_hooks(repo_root: Path = None) -> None:
 
         if hook_path.exists():
             existing = hook_path.read_text()
-            if MARKER in existing:
+            if any(m in existing for m in (MARKER, *LEGACY_MARKERS)):
                 # Already installed — overwrite with latest version.
                 pass
             else:
                 print(
-                    f"  aprx-tools: {name} hook already exists and is not ours.\n"
+                    f"  cimkit-git: {name} hook already exists and is not ours.\n"
                     f"  Add this line to {hook_path}:\n"
-                    f"    python3 -m aprx_tools hook {name}"
+                    f"    python3 -m cimkit_git hook {name}"
                 )
                 continue
 
         hook_path.write_text(content)
         hook_path.chmod(hook_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-        print(f"  aprx-tools: installed {name} hook")
+        print(f"  cimkit-git: installed {name} hook")
 
 
 # --------------------------------------------------------------------------- #
@@ -107,18 +109,27 @@ def install_hooks(repo_root: Path = None) -> None:
 def _read_config(config_path: Path) -> "tuple[str | None, dict]":
     """Return ``(declared_mode, raw_config)`` for an existing ``aprx.json``.
 
-    ``declared_mode`` is ``None`` when there is *no mode decision on record* —
-    the file is absent, unreadable, not a JSON object, or carries no recognised
-    ``mode``. In every such case install is free to decide and write one; a file
-    that already declares a valid mode is honoured untouched."""
+    A *missing* file is the fresh-install case — ``(None, {})`` — install decides a
+    mode and writes a new config. A file that is *present but unreadable / non-UTF-8 /
+    malformed / not a JSON object* is **not** collapsed into that same ``(None, {})``:
+    doing so would let install silently overwrite a committed config it merely failed
+    to *parse*, discarding the developer's ``fields``/``token`` — and you cannot
+    preserve fields you cannot read, so the only non-destructive answer is to stop.
+    Such a file is a directed ``sys.exit`` instead; install is a user-run one-shot,
+    never the fail-open hook sweep, so aborting it crashes no commit — fix or remove
+    the file and re-run. The read routes through the shared ``read_json_or_exit`` (the
+    single home for the read/decode/parse diagnostics), so install and ``connections
+    init`` report a broken ``aprx.json`` identically rather than drifting.
+
+    ``declared_mode`` is ``None`` when the file is absent or present-and-readable but
+    carries no recognised ``mode`` — e.g. a legacy mode-less config from ``connections
+    init``, whose ``fields``/``token`` come back in ``raw_config`` for the write to
+    preserve. A file that already declares a valid mode is honoured untouched."""
     if not config_path.exists():
         return None, {}
-    try:
-        cfg = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None, {}
+    cfg = read_json_or_exit(config_path)
     if not isinstance(cfg, dict):
-        return None, {}
+        sys.exit(f"cimkit-git: {config_path} must be a JSON object (the project config)")
     mode = cfg.get("mode")
     return (mode if mode in MODES else None), cfg
 
@@ -138,8 +149,8 @@ def _prompt_mode(prompt) -> str:
             ).strip().lower()
         except EOFError:
             # stdin closed mid-prompt — abort cleanly rather than tracebacking.
-            sys.exit("aprx-tools: no mode selected (end of input) — "
-                     "re-run with `aprx install --mode simple|env`")
+            sys.exit("cimkit-git: no mode selected (end of input) — "
+                     "re-run with `git cim install --mode simple|env`")
         if answer in ("simple", "s"):
             return SIMPLE
         if answer in ("env", "e", "environment"):
@@ -181,7 +192,7 @@ def install(repo_root: Path = None, config_dir: Path = None, mode: str = None,
     default, then written. Returns the effective mode."""
     # Guard the public entry point: argparse's `choices` only covers the CLI path.
     if mode is not None and mode not in MODES:
-        sys.exit(f"aprx-tools: unknown mode {mode!r} — "
+        sys.exit(f"cimkit-git: unknown mode {mode!r} — "
                  f"expected one of {', '.join(MODES)}")
 
     config_dir = Path.cwd() if config_dir is None else Path(config_dir)
@@ -200,11 +211,11 @@ def install(repo_root: Path = None, config_dir: Path = None, mode: str = None,
         # shared, committed choice, so changing it is a deliberate file edit.
         if mode is not None and mode != declared:
             sys.exit(
-                f"aprx-tools: {config_path} already declares mode '{declared}'; "
+                f"cimkit-git: {config_path} already declares mode '{declared}'; "
                 f"refusing to overwrite it with '{mode}'. Edit {CONFIG_FILENAME} "
                 f"directly if the team is changing modes."
             )
-        print(f"  aprx-tools: {CONFIG_FILENAME} already declares mode "
+        print(f"  cimkit-git: {CONFIG_FILENAME} already declares mode "
               f"'{declared}' — leaving it unchanged")
         effective = declared
     else:
@@ -212,7 +223,7 @@ def install(repo_root: Path = None, config_dir: Path = None, mode: str = None,
             interactive = sys.stdin.isatty()
         effective = _decide_mode(mode, interactive, prompt)
         _write_mode(config_path, existing, effective)
-        print(f"  aprx-tools: recorded mode '{effective}' in {CONFIG_FILENAME}")
+        print(f"  cimkit-git: recorded mode '{effective}' in {CONFIG_FILENAME}")
 
     install_hooks(repo_root)
     return effective

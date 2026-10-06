@@ -24,7 +24,7 @@ own hard errors — there is nothing to accumulate before a usable map exists.
     Substitution.for_explode(cfg)            -- tokenize: connection string -> @@token@@
     Substitution.for_pack(cfg, env=...)      -- substitute: @@token@@ -> connection string
 
-It is a thin adapter over the pure engine in :mod:`aprx_tools.connections`, which already
+It is a thin adapter over the pure engine in :mod:`cimkit_git.connections`, which already
 operates on parsed JSON (never text) so values containing backslashes, semicolons or
 quotes re-serialise with correct escaping. ``Substitution`` adds three things: a factory
 that picks the direction, a map sourced from ``ProjectConfig``, and ownership of the
@@ -99,7 +99,7 @@ def pack_transform(project_dir, env=None, connections_file=None):
         return Substitution.for_pack(cfg, env, connections_file)
     if env or connections_file:
         sys.exit(
-            f"aprx-tools: {cfg.dir} is not an environment-mode project — "
+            f"cimkit-git: {cfg.dir} is not an environment-mode project — "
             f"--env / --connections do not apply to a simple-mode project"
         )
     return IDENTITY
@@ -119,9 +119,9 @@ def _bullet_list(items) -> str:
 def _explode_problem_message(problems) -> str:
     """Offenders are connection strings registered in no environment file."""
     return (
-        f"aprx-tools: {len(problems)} connection string(s) are registered in no "
+        f"cimkit-git: {len(problems)} connection string(s) are registered in no "
         f"environment file:\n{_bullet_list(problems)}\n"
-        f"add them to a connections/*.json (or run `aprx connections init`)"
+        f"add them to a connections/*.json (or run `git cim connections init`)"
     )
 
 
@@ -138,7 +138,7 @@ def _pack_problem_message(env, connections_file):
 
     def describe(problems) -> str:
         return (
-            f"aprx-tools: {where} is missing {len(problems)} referenced token "
+            f"cimkit-git: {where} is missing {len(problems)} referenced token "
             f"key(s):\n{_bullet_list(problems)}\nadd them to {where}"
         )
 

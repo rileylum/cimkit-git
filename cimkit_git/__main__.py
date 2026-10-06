@@ -6,10 +6,10 @@ from . import __version__
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="aprx",
+        prog="git cim",
         description="Version-control tooling for ArcGIS .aprx project files.",
     )
-    parser.add_argument("--version", action="version", version=f"aprx-tools {__version__}")
+    parser.add_argument("--version", action="version", version=f"cimkit-git {__version__}")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
     # explode
@@ -79,7 +79,7 @@ def main() -> None:
 
         aprx = Path(args.aprx_file)
         if not aprx.exists():
-            sys.exit(f"aprx-tools: {aprx} not found")
+            sys.exit(f"cimkit-git: {aprx} not found")
         transform = explode_transform(aprx.resolve().parent)
         try:
             explode(args.aprx_file, args.output_dir, transform=transform)
@@ -97,7 +97,7 @@ def main() -> None:
 
         src = Path(args.src_dir)
         if not src.is_dir():
-            sys.exit(f"aprx-tools: {src} is not a directory")
+            sys.exit(f"cimkit-git: {src} is not a directory")
         transform = pack_transform(src.resolve().parent,
                                    env=args.env, connections_file=args.connections_file)
         try:
@@ -147,6 +147,12 @@ def main() -> None:
     else:
         parser.print_help()
         sys.exit(1)
+
+
+def main_legacy() -> None:
+    print("cimkit-git: the `aprx` command is deprecated; use `git cim` instead",
+          file=sys.stderr)
+    main()
 
 
 if __name__ == "__main__":

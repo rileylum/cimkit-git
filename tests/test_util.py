@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 
-from aprx_tools.util import (
+from cimkit_git.util import (
     src_dir_for,
     aprx_for_src_dir,
     aprx_output_for,

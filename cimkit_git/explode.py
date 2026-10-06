@@ -1,21 +1,10 @@
-import json
 import shutil
 import sys
-import zipfile
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from .util import src_dir_for
 from .transform import IDENTITY
-
-
-def _format_xml(data: bytes) -> str:
-    ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
-    ET.register_namespace("xs", "http://www.w3.org/2001/XMLSchema")
-    ET.register_namespace("typens", "http://www.esri.com/schemas/ArcGIS/3.6.0")
-    root = ET.fromstring(data.decode("utf-8"))
-    ET.indent(root, space="  ")
-    return ET.tostring(root, encoding="unicode") + "\n"
+from .entry import read_entries, render_pretty
 
 
 def explode(aprx_path: str, output_dir: str = None, transform=IDENTITY) -> Path:
@@ -25,7 +14,7 @@ def explode(aprx_path: str, output_dir: str = None, transform=IDENTITY) -> Path:
     each JSON entry, hands it to ``transform.apply`` (which may rewrite it in place),
     and pretty-prints the result. Simple mode passes the no-op ``IDENTITY``;
     environment mode passes a ``Substitution`` that tokenises connection strings. The
-    composition root (CLI / hooks) chooses which, so a direct ``aprx explode`` of an
+    composition root (CLI / hooks) chooses which, so a direct ``git cim explode`` of an
     environment-mode project still produces neutral source.
 
     The transform is two-phase: ``apply`` runs per entry, then ``raise_if_problems``
@@ -35,35 +24,19 @@ def explode(aprx_path: str, output_dir: str = None, transform=IDENTITY) -> Path:
     """
     aprx = Path(aprx_path)
     if not aprx.exists():
-        sys.exit(f"aprx-tools: {aprx} not found")
+        sys.exit(f"cimkit-git: {aprx} not found")
 
     out = Path(output_dir) if output_dir else src_dir_for(aprx)
 
     # Compute every entry first so a transform problem fails before we delete or
-    # overwrite the existing src directory.
+    # overwrite the existing src directory. The Entry reader (issue 0002) owns the
+    # zip walk, the JSON parse, and the byte-fallback policy; explode hands each parsed
+    # entry to the transform and renders the pretty form.
     payloads = []  # (name, data: str | bytes)
-    with zipfile.ZipFile(aprx, "r") as zf:
-        for name in sorted(zf.namelist()):
-            raw = zf.read(name)
-            payload = raw
-
-            if name.endswith(".json"):
-                try:
-                    parsed = json.loads(raw.decode("utf-8"))
-                    transform.apply(parsed)
-                    payload = json.dumps(parsed, indent=2, ensure_ascii=False) + "\n"
-                except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                    print(f"  warning: could not parse JSON in {name}: {e}", file=sys.stderr)
-                    payload = raw
-
-            elif name.endswith(".xml"):
-                try:
-                    payload = _format_xml(raw)
-                except Exception as e:
-                    print(f"  warning: could not parse XML in {name}: {e}", file=sys.stderr)
-                    payload = raw
-
-            payloads.append((name, payload))
+    for entry in read_entries(aprx):
+        if entry.is_parsed_json:
+            transform.apply(entry.parsed)
+        payloads.append((entry.name, render_pretty(entry)))
 
     # Phase 2: surface every accumulated problem at once, before touching the filesystem.
     transform.raise_if_problems()

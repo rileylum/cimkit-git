@@ -1,6 +1,6 @@
 import zipfile
 
-from aprx_tools.pack import pack
+from cimkit_git.pack import pack
 
 
 def test_default_output_name(tmp_path, exploded):

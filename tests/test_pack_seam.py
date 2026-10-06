@@ -17,9 +17,9 @@ import zipfile
 
 import pytest
 
-from aprx_tools.pack import pack
-from aprx_tools.project_config import ProjectConfig
-from aprx_tools.transform import IDENTITY, Substitution, SubstitutionError
+from cimkit_git.pack import pack
+from cimkit_git.project_config import ProjectConfig
+from cimkit_git.transform import IDENTITY, Substitution, SubstitutionError
 
 
 # --------------------------------------------------------------------------- #
@@ -30,7 +30,7 @@ def test_simple_pack_rebuilds_faithful_project(tmp_path, exploded, simple_aprx):
     # The default IDENTITY pack rebuilds a Project semantically identical to the source
     # it came from — same entries, nothing swapped — so adopting the seam changes no
     # simple-mode output. (`compare` returns False when the two match.)
-    from aprx_tools.compare import compare
+    from cimkit_git.compare import compare
     out = pack(str(exploded), str(tmp_path / "out.aprx"))
     assert compare(str(simple_aprx), str(out)) is False
 
@@ -111,7 +111,7 @@ def test_env_pack_with_nothing_resolvable_errors(env_project, explode_env, pack_
 def _simple_project(tmp_path, simple_aprx):
     """A simple-mode project: map.aprx + aprx.json(mode: simple) + its exploded src,
     all in one directory so pack's composition root finds the aprx.json beside the src."""
-    from aprx_tools.explode import explode
+    from cimkit_git.explode import explode
     proj = tmp_path / "proj"
     proj.mkdir()
     shutil.copy(simple_aprx, proj / "map.aprx")
@@ -120,7 +120,7 @@ def _simple_project(tmp_path, simple_aprx):
 
 
 def _run_main(monkeypatch, argv):
-    from aprx_tools.__main__ import main
+    from cimkit_git.__main__ import main
     monkeypatch.setattr("sys.argv", ["aprx", *argv])
     return main
 
@@ -148,6 +148,6 @@ def test_main_rejects_connections_flag_on_simple_project(monkeypatch, tmp_path, 
 # --------------------------------------------------------------------------- #
 
 def test_pack_module_does_not_import_connection_engine():
-    import aprx_tools.pack as pack_mod
+    import cimkit_git.pack as pack_mod
     assert not hasattr(pack_mod, "conn")
     assert pack_mod.pack.__defaults__[-1] is IDENTITY   # default transform is the no-op

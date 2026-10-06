@@ -1,9 +1,9 @@
 import json
 import xml.etree.ElementTree as ET
 
-from aprx_tools.compare import compare
-from aprx_tools.explode import explode
-from aprx_tools.pack import pack
+from cimkit_git.compare import compare
+from cimkit_git.explode import explode
+from cimkit_git.pack import pack
 
 
 def test_explode_pack_is_semantically_identical(tmp_path, simple_aprx, exploded):
