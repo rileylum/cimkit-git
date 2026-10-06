@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-06
+
 ### Changed (breaking)
 
 - **Renamed `aprx-tools` to `cimkit-git`**, the version-control package of the cimkit
@@ -19,17 +21,47 @@ All notable changes to this project are documented here. The format is based on
 
 - The `aprx` command. It still works but warns; use `git cim`.
 
+### Added
+
+- `commit_binary` in `aprx.json`. Set it to `true` and simple-mode `git cim verify`
+  requires the committed `.aprx` to be present **and** in sync with its source.
+  Absent or `false` keeps the default below. A non-boolean value is a configuration
+  error.
+
 ### Changed
 
+- Simple-mode `git cim verify` no longer fails when the `.aprx` binary is missing.
+  The source is the source of truth, so a source-only repository passes. A binary
+  that *is* present must still match its source. Use `commit_binary: true` to require
+  the binary.
 - The strict undeclared-Project guard (ADR-0001) now fires on the **Source-only**
   pre-commit path too, not just on a staged `.aprx` binary. Resolving a merge by editing
   files inside an env Project's `.aprx.src/` and staging the Source only (never the
   binary) used to slip past the guard and pack a derived binary — full of unsubstituted
   tokens, or re-materialised raw connection strings — for a Project that should have a
   blocked or no-committed-binary outcome. Such a commit is now blocked with the same
-  `aprx install` diagnostic the binary path already emits. This tightens behaviour toward
+  `git cim install` diagnostic the binary path already emits. This tightens behaviour toward
   ADR-0001; it does not change simple-mode Source-only commits (merge-conflict
   resolution still packs and stages).
+- A commit that stages several undeclared Projects now names all of them in one
+  message, instead of one per retry.
+
+### Fixed
+
+- In an environment-mode Project, a merge resolved by hand-editing the tokenised
+  `.aprx.src/` and staging only the source is no longer overwritten by the pre-commit
+  hook. The hook used to re-explode the working `.aprx`, which can be stale after a
+  conflicted merge, and silently discard the resolution. Staged source is now
+  re-tokenised in place instead.
+- The pre-commit hook no longer aborts the commit when a simple-mode `.aprx` is
+  git-ignored. It still repacks the binary so you can open it, but skips staging it.
+- An unreadable, non-UTF-8 or malformed `aprx.json` or `connections/*.json` no longer
+  crashes the hooks with a traceback. The affected Project is skipped (or the commit
+  blocked, where skipping could leak a connection string), with a message saying
+  which of the three problems to fix.
+- `git cim install` and `git cim connections init` stop with a clear message on a
+  broken `aprx.json`. Previously `install` could treat an unparseable file as missing
+  and overwrite it, losing its `fields` and `token` settings.
 
 ## [0.2.1] - 2026-06-25
 
