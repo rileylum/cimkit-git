@@ -3,9 +3,6 @@
 Version-control tooling for ArcGIS `.aprx` project files. Part of the
 [cimkit](https://github.com/rileylum/cimkit) suite of headless ArcGIS tools.
 
-> **Formerly `aprx-tools`.** If you used `aprx-tools` 0.2.x, see
-> [Migrating from aprx-tools](#migrating-from-aprx-tools).
-
 An `.aprx` file is a zip archive of JSON and XML. This tool explodes it into
 a diffable directory (`.aprx.src/`), packs it back, and installs git hooks so
 the process is automatic.
@@ -117,19 +114,6 @@ cimkit-git ships no man page.
 After installing, run `git cim install` in your repository to set up the git hooks. No
 specific package manager is required in your project — the hooks use whatever Python
 interpreter is available in your environment.
-
-## Migrating from aprx-tools
-
-`aprx-tools` was renamed to `cimkit-git` in 0.3.0. Nothing in your repository
-changes: `aprx.json`, `connections/` and `*.aprx.src/` keep the same names and
-formats.
-
-1. Install the new package: `pip uninstall aprx-tools && pip install cimkit-git`.
-2. Re-run `git cim install` in each repository. Your old hooks call
-   `python3 -m aprx_tools`, which no longer exists, so they fail until you do this.
-   `install` recognises hooks written by aprx-tools and replaces them.
-3. Replace `aprx` with `git cim` in CI scripts. The `aprx` command still works in
-   0.3.x but prints a deprecation warning, and a later release removes it.
 
 ## Upgrading an existing repository
 

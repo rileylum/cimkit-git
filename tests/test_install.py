@@ -64,16 +64,6 @@ def test_install_is_idempotent(git_repo):
         assert MARKER in (git_repo / ".git" / "hooks" / name).read_text()
 
 
-def test_upgrades_hook_written_by_aprx_tools(git_repo):
-    hook_path = git_repo / ".git" / "hooks" / "pre-commit"
-    hook_path.write_text("#!/usr/bin/env bash\n# managed-by: aprx-tools\n"
-                         "python3 -m aprx_tools hook pre-commit\n")
-    install_hooks(git_repo)
-    text = hook_path.read_text()
-    assert MARKER in text
-    assert "-m cimkit_git hook pre-commit" in text
-
-
 def test_does_not_overwrite_foreign_hook(git_repo, capsys):
     foreign = "#!/usr/bin/env bash\necho 'foreign'\n"
     hook_path = git_repo / ".git" / "hooks" / "pre-commit"

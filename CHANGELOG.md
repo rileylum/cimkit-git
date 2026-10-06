@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Removed
+
+- The deprecated `aprx` command; use `git cim`.
+- `git cim install` no longer recognises hooks written by `aprx-tools`. That package
+  had no users and has been deleted from PyPI.
+
 ## [0.3.0] - 2026-10-06
 
 ### Changed (breaking)
