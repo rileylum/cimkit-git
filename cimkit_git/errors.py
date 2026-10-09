@@ -55,3 +55,23 @@ class PlaceholderError(CimkitError):
     def __init__(self, problems):
         super().__init__(f"{len(problems)} placeholder problem(s)")
         self.problems = problems
+
+
+class RefusedError(CimkitError):
+    """A write that would lose an edit or can't run yet; .status says why."""
+
+    def __init__(self, status):
+        super().__init__(status.value)
+        self.status = status
+
+
+class NotAProjectError(CimkitError):
+    pass
+
+
+class LockedError(CimkitError):
+    pass
+
+
+class WriteError(CimkitError):
+    pass

@@ -1,12 +1,16 @@
 """Sync state: what the tool last wrote or read for each project, kept in the git dir."""
 
+import contextlib
 import hashlib
 import json
 import secrets
+import sys
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from cimkit_git.errors import StateError
+from cimkit_git import replace
+from cimkit_git.errors import LockedError, StateError
 from cimkit_git.values import Values
 
 
@@ -14,7 +18,8 @@ from cimkit_git.values import Values
 class Record:
     source_tree: str
     binary_hash: str
-    target: str
+    # None when config declares no targets.
+    target: str | None
     # Salted hash of each value the build used -> its key. Never the value itself.
     mapping: dict[str, str]
 
@@ -63,5 +68,36 @@ def load(path: Path) -> State:
 
 
 def save(st: State, path: Path) -> None:
+    """Replace the file whole, so a failed save leaves the previous state readable.
+
+    Callers hold lock(): two runs saving at once would each drop the other's records.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(asdict(st), indent=2, sort_keys=True))
+    text = json.dumps(asdict(st), indent=2, sort_keys=True)
+    replace.replace_file(path, lambda new: new.write_text(text), lambda: None)
+
+
+@contextlib.contextmanager
+def lock(path: Path) -> Iterator[None]:
+    """Hold the tool lock, or raise LockedError at once if another process holds it.
+
+    An OS lock rather than an O_EXCL file: the OS drops it when the process dies, so a
+    crash never leaves a stale lock, and no liveness check is needed. Windows' stdlib
+    has no safe one (os.kill(pid, 0) terminates the process there).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+b") as f:
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+
+                # Locks one byte from the current position; it may lie past the end of the file.
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise LockedError("another cimkit-git is running in this worktree") from exc
+        yield

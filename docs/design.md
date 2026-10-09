@@ -151,8 +151,9 @@ record:
 Before using the table, `sync.py` checks three things and refuses if any holds:
 
 - files under the Source dir are unmerged (`git ls-files -u`)
-- the index holds Source that differs from both the working Source and the recorded
-  tree, so a staged edit would be lost
+- the index holds Source that differs from the working Source, the recorded tree and
+  HEAD, so a staged edit would be lost. An index matching HEAD holds nothing uncommitted;
+  that is the normal state right after explode.
 - the tool lock is held, or Pro's lock file for the project exists (open question 1)
 
 A binary whose hash changed but whose in-memory explode equals the recorded Source

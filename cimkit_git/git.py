@@ -89,6 +89,14 @@ def index_tree(root: Path, directory: str) -> str | None:
     return _tree(root, lines) if lines else None
 
 
+def head_tree(root: Path, directory: str) -> str | None:
+    """The tree ID of directory in HEAD, or None if HEAD doesn't exist or lacks it."""
+    try:
+        return _git(root, "rev-parse", "--verify", "-q", f"HEAD:{directory.rstrip('/')}").strip()
+    except subprocess.CalledProcessError:
+        return None
+
+
 def unmerged(root: Path, directory: str) -> list[str]:
     out = _git(root, "ls-files", "-u", "-z", "--", directory.rstrip("/") + "/")
     return sorted({record.split("\t", 1)[1] for record in filter(None, out.split("\0"))})
