@@ -274,7 +274,7 @@ CI supplies layer 2 from its secret store.
   to register each unregistered value. They suggest a key from the `.gdb` or database
   name and ask before writing. The key goes into `keys` in `cimkit.toml` (committed)
   and the value into `cimkit.local.toml` for the current target. Without a terminal,
-  and always in hooks, they print the same steps and stop. `check --target T` then
+  with `--no-input`, and always in hooks, they print the same steps and stop. `check --target T` then
   fails until every other target has a value for the new key.
 
 Source holds placeholders on every branch, so promotion merges never conflict on

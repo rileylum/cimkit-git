@@ -37,6 +37,11 @@ def git_dir(start: Path) -> Path:
     return _rev_parse(start, "--absolute-git-dir")
 
 
+def ignored(root: Path, path: Path) -> bool:
+    """Whether git ignores path. A tracked file counts as not ignored."""
+    return subprocess.run(["git", "check-ignore", "-q", str(path)], cwd=root).returncode == 0
+
+
 def converts_text(root: Path, path: str) -> bool:
     """Whether git may rewrite line endings in path on checkout or add.
 

@@ -50,11 +50,16 @@ class StateError(CimkitError):
 
 
 class PlaceholderError(CimkitError):
-    """Carries the problems from neutralise or resolve; cli.py words each one."""
+    """Carries the problems from neutralise or resolve; cli.py words each one.
 
-    def __init__(self, problems):
+    target is set only when explode raised it: the target a registered value belongs to.
+    A build's unregistered value is already in Source, so registering it fixes nothing.
+    """
+
+    def __init__(self, problems, target=None):
         super().__init__(f"{len(problems)} placeholder problem(s)")
         self.problems = problems
+        self.target = target
 
 
 class RefusedError(CimkitError):
@@ -75,3 +80,7 @@ class LockedError(CimkitError):
 
 class WriteError(CimkitError):
     pass
+
+
+class RegisterError(CimkitError):
+    """A key or value that can't be written safely; register it by hand."""

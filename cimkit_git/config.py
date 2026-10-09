@@ -28,7 +28,7 @@ class Config:
     exclude: tuple[str, ...] = ()
 
 
-def _table(path: Path, doc: dict) -> dict | None:
+def table(path: Path, doc: dict) -> dict | None:
     if path.name == "pyproject.toml":
         return doc.get("tool", {}).get("cimkit", {}).get("git")
     return doc.get("git")
@@ -62,7 +62,7 @@ def _format(path: Path, ph: dict) -> str:
 def _read(path: Path) -> dict | None:
     try:
         with path.open("rb") as f:
-            return _table(path, tomllib.load(f))
+            return table(path, tomllib.load(f))
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"{path}: {exc}") from exc
 
