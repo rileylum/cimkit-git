@@ -7,11 +7,12 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from cimkit_git import config, git
-from cimkit_git.errors import CimkitError, PlaceholderError, RefusedError, RegisterError
+from cimkit_git import checks, config, git
+from cimkit_git.errors import CimkitError, ConfigError, PlaceholderError, RefusedError, RegisterError
 from cimkit_git.placeholders import Problem
 from cimkit_git.register import add_key, set_value, suggest_key
 from cimkit_git.sync import Status, Workspace
+from cimkit_git.values import load_values
 
 # Until install writes this line, status is the only place that names it.
 LINE_ENDINGS_HINT = "Add this line to .gitattributes so git never converts Source:\n    **/*.aprx.src/** -text"
@@ -60,12 +61,20 @@ def mask(value: str) -> str:
     return SECRET.sub(r"\1***", value)
 
 
-def describe(problem: Problem) -> str:
+def explain(problem: Problem | checks.Finding) -> str:
     if problem.kind == "unregistered":
-        return f"{problem.entry}: unregistered value {mask(problem.text)}"
+        return f"unregistered value {mask(problem.text)}"
     if problem.kind == "unknown_key":
-        return f"{problem.entry}: no key named {problem.text} is declared"
-    return f"{problem.entry}: no value is set for {problem.text}"
+        return f"no key named {problem.text} is declared"
+    if problem.kind == "missing_value":
+        return f"no value is set for {problem.text}"
+    if problem.kind == "path":
+        return f"{problem.count} machine path(s), first {problem.text}"
+    return problem.text
+
+
+def describe(problem: Problem) -> str:
+    return f"{problem.entry}: {explain(problem)}"
 
 
 def interactive(args: argparse.Namespace) -> bool:
@@ -198,6 +207,38 @@ def sync(ws: Workspace, args: argparse.Namespace, projects: list[Path]) -> int:
     return each_project(ws, projects, act, interactive(args))
 
 
+def check(args: argparse.Namespace) -> int:
+    """Takes no lock and reads no sync state: it reads only what is committed."""
+    start = Path.cwd().resolve()
+    committed = checks.at_rev(start, args.rev) if args.rev else checks.working_tree(start)
+    cfg = committed.config
+    errors: list[str] = []
+    warnings: list[str] = []
+    if args.target:
+        if not cfg.placeholders:
+            raise ConfigError(f"{cfg.path} declares no targets")
+        # Loaded only here: without a target, check needs no values and so no secrets.
+        values = load_values(cfg.placeholders, cfg.path.parent / "cimkit.local.toml", os.environ)
+        rel = cfg.path.relative_to(committed.root).as_posix()
+        errors += [f"{rel}: error: {args.target} has no value for {key}" for key in values.missing(args.target)]
+    for name, read in committed.sources.items():
+        try:
+            findings = checks.check(read(), cfg.placeholders)
+        except CimkitError as exc:
+            errors.append(f"{name}: error: {exc}")
+            continue
+        for finding in findings:
+            if finding.kind == "path":
+                warnings.append(f"{name}/{finding.entry}: warning: {explain(finding)}")
+            else:
+                errors.append(f"{name}/{finding.entry}: error: {explain(finding)}")
+    # Errors first: path warnings fire on nearly every project and would bury them.
+    for line in errors + warnings:
+        print(line)
+    print(f"{len(errors)} error(s), {len(warnings)} warning(s)")
+    return 1 if errors else 0
+
+
 NO_INPUT = "never prompt to register a value; print the steps instead"
 
 
@@ -205,6 +246,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cimkit-git")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status", help="print each project's status")
+    p = commands.add_parser("check", help="the CI gate: check committed Source for leaks and parse errors")
+    p.add_argument("--target", help="also fail if this target lacks a value for a declared key")
+    p.add_argument("--rev", help="check this commit instead of the working tree")
     p = commands.add_parser("sync", help="explode or build, whichever the status calls for")
     p.add_argument("project", nargs="?", type=Path, help="a binary or its Source; all projects if omitted")
     p.add_argument("--no-input", action="store_true", help=NO_INPUT)
@@ -223,6 +267,8 @@ def main(argv: list[str] | None = None) -> int:
     if output and not args.project:
         parser.error("build -o needs a project")
     try:
+        if args.command == "check":
+            return check(args)
         ws = Workspace(Path.cwd(), os.environ)
         named = getattr(args, "project", None)
         projects = [ws.project(named)] if named else ws.projects()

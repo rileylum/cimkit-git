@@ -3,7 +3,7 @@
 import hashlib
 import json
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from xml.dom import minidom
 from xml.parsers.expat import ExpatError
@@ -92,6 +92,42 @@ def _convert(items: Mapping[str, bytes], convert: Callable[[bytes], bytes]) -> d
             # Never fall back to raw bytes: unparsed structure can hide a value from the leak scan.
             raise EntryParseError(f"{name}: {exc}") from exc
     return out
+
+
+def _json_strings(node: object) -> Iterator[str]:
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, dict):
+        for value in node.values():
+            yield from _json_strings(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _json_strings(item)
+
+
+def _xml_strings(node: minidom.Node) -> Iterator[str]:
+    if node.nodeType in (node.TEXT_NODE, node.CDATA_SECTION_NODE):
+        yield node.data
+    if node.nodeType == node.ELEMENT_NODE:
+        yield from (attr.value for attr in node.attributes.values())
+    for child in node.childNodes:
+        yield from _xml_strings(child)
+
+
+def strings(name: str, data: bytes) -> list[str]:
+    """Every string value in a JSON or XML entry; none for an opaque one.
+
+    Raises EntryParseError, so a check never passes an entry it couldn't read.
+    """
+    try:
+        kind = entry_kind(data)
+        if kind == "json":
+            return list(_json_strings(json.loads(data)))
+        if kind == "xml":
+            return list(_xml_strings(minidom.parseString(data)))
+        return []
+    except (ValueError, ExpatError) as exc:
+        raise EntryParseError(f"{name}: {exc}") from exc
 
 
 # Rejected on every OS, so a Source written on Linux still checks out on Windows.

@@ -4,7 +4,7 @@ import contextlib
 import enum
 import fnmatch
 import os
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
@@ -104,9 +104,27 @@ def find_projects(base: Path, exclude: tuple[str, ...]) -> list[Path]:
         found.update(Path(root, name.removesuffix(".src")) for name in dirs if name.endswith(SOURCE_SUFFIX))
         dirs[:] = [name for name in dirs if not name.startswith(".") and not name.endswith(SOURCE_SUFFIX)]
         found.update(Path(root, name) for name in files if name.endswith(".aprx"))
-    return sorted(
-        p for p in found if not any(fnmatch.fnmatchcase(p.relative_to(base).as_posix(), g) for g in exclude)
-    )
+    return sorted(p for p in found if not _excluded(p.relative_to(base).as_posix(), exclude))
+
+
+def _excluded(binary: str, exclude: tuple[str, ...]) -> bool:
+    return any(fnmatch.fnmatchcase(binary, g) for g in exclude)
+
+
+def find_sources(paths: Iterable[str], exclude: tuple[str, ...]) -> list[str]:
+    """The Source dirs among file paths relative to the config dir, by find_projects' rules.
+
+    For a commit, where only Source is committed, so binaries never count.
+    """
+    found = set()
+    for path in paths:
+        for i, segment in enumerate(path.split("/")[:-1]):
+            if segment.endswith(SOURCE_SUFFIX):
+                found.add("/".join(path.split("/")[: i + 1]))
+                break
+            if segment.startswith("."):
+                break
+    return sorted(s for s in found if not _excluded(s.removesuffix(".src"), exclude))
 
 
 def source_dir(binary: Path) -> Path:
@@ -125,9 +143,7 @@ class Workspace:
 
     def reload(self) -> None:
         """Read config and values again, after registering a value changed them."""
-        found = config.find_config(self._start.resolve(), self.root)
-        # With no config there is nothing to replace, and projects anywhere in the repo count.
-        self.config = config.load_config(found) if found else config.Config(self.root / "cimkit.toml", None)
+        self.config = config.discover(self._start.resolve(), self.root)
         self.local_path = self.config.path.parent / "cimkit.local.toml"
         self.values = None
         if self.config.placeholders:

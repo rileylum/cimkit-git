@@ -108,3 +108,19 @@ def test_converts_text_is_false_only_when_source_is_marked_minus_text(repo):
 
     assert not git.converts_text(repo, "map.aprx.src/GISProject.json")
     assert not git.converts_text(repo, "maps/map.aprx.src/sub/a.xml")
+
+
+def test_tree_files_returns_the_exact_bytes_under_a_directory_at_a_commit(repo):
+    commit(repo, {f"map.aprx.src/{n}": d for n, d in FILES.items()} | {"other.txt": b"x"})
+    (repo / "map.aprx.src/a.json").write_bytes(b"working\n")
+
+    assert git.tree_files(repo, git.rev_tree(repo, "HEAD"), "map.aprx.src") == FILES
+
+
+def test_a_symlink_in_a_committed_tree_is_refused(repo):
+    (repo / "map.aprx.src").mkdir()
+    (repo / "map.aprx.src/link").symlink_to("/etc/passwd")
+    commit(repo, {})
+
+    with pytest.raises(errors.SymlinkInSourceError):
+        git.tree_files(repo, git.rev_tree(repo, "HEAD"), "map.aprx.src")

@@ -282,8 +282,9 @@ environment values.
 
 ## Checks
 
-`check` reads committed content: the working tree by default, or `--rev REV`. pre-push
-runs it on each outgoing commit. It reports:
+`check` reads committed content: the working tree by default, or `--rev REV`. With
+`--rev`, the config and the project list come from that commit too, so a commit that adds
+a key is checked against its own config. pre-push runs it on each outgoing commit. It reports:
 
 | Finding | Severity |
 |---|---|
@@ -292,6 +293,10 @@ runs it on each outgoing commit. It reports:
 | a JSON or XML entry fails to parse | error |
 | any string, including in `Metadata/`, holds a local absolute path or a UNC path | warning |
 | with `--target T`: `T` lacks a value for a declared key | error |
+
+Errors print first. Path warnings come one line per entry, with the first path and a
+count, because `DocumentTitle` alone puts a path in nearly every project. Warnings never
+change the exit code.
 
 URLs are not warned on. In the corpus they are almost all XML namespaces inside
 embedded-XML strings and public Esri services, so a URL warning fired on every project

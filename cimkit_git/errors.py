@@ -45,6 +45,10 @@ class NotAGitRepoError(CimkitError):
     pass
 
 
+class RevError(CimkitError):
+    pass
+
+
 class StateError(CimkitError):
     pass
 
