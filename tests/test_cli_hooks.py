@@ -91,7 +91,7 @@ def test_pre_commit_blocks_while_git_would_convert_line_endings_in_source(repo, 
     code, out = hook(capsys, "pre-commit")
 
     assert code == 1
-    assert out[:2] == ["map.aprx: error: git converts line endings in Source. Add this line to .gitattributes so git never converts Source:", "        **/*.aprx.src/** -text"]
+    assert out[:2] == ["map.aprx: error: git converts line endings in Source. Run cimkit-git install, or add this line to .gitattributes so git never converts Source:", "        **/*.aprx.src/** -text"]
 
 
 def test_pre_commit_blocks_staged_source_that_matches_neither_the_working_copy_nor_the_record(project, capsys):

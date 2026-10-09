@@ -210,24 +210,28 @@ Each hook is a one-line shim that calls `cimkit-git hook <name>`. The decisions 
 
 | Hook | Checks | On a finding | If it can't run |
 |---|---|---|---|
-| pre-commit | any staged binary; any project not clean; staged Source (read from the index) failing the leak check | blocks | blocks |
+| pre-commit | any staged binary; any project not clean, Source changed or not built; staged Source (read from the index) failing the leak check | blocks | blocks |
 | pre-push | every outgoing commit, from the refs git passes on stdin | blocks | blocks |
 | post-checkout, post-merge, post-rewrite, post-stash | prints projects that are not clean, and the command to run | warns | warns |
 
-pre-commit blocks on any project that isn't clean. A binary edit that isn't in Source
-yet stops the commit with "run `cimkit-git sync`", so a commit never silently misses a
-Pro edit.
+pre-commit blocks on every status except clean, Source changed and not built. A binary
+edit that isn't in Source yet stops the commit with "run `cimkit-git sync`", so a commit
+never silently misses a Pro edit. A Source-only commit, such as a hand-resolved merge,
+loses no Pro edit and needs no Pro to make, so it goes through.
 
 `install`:
 
-- On Git 2.54 or later, registers the hooks in git config (`hook.<name>.*`). Git 2.55
-  supports `git hook list`; this was confirmed locally.
-- On older Git, writes shims into `git rev-parse --git-path hooks`, and never
-  overwrites a hook it didn't write.
-- Records the absolute path of the Python it runs under, because Git's `sh` on Windows
-  won't find the Pro conda environment on its own.
-- Adds the binary ignore line (for example `*.aprx`) and `cimkit.local.toml` to
-  `.gitignore`.
+- On Git 2.54 or later, registers each hook in the repo's git config as
+  `hook.cimkit-git-<event>.event` and `.command`. Git rejects a name equal to an event
+  name, hence the prefix. Git appends the hook's arguments to the command itself.
+- On older Git, writes shims into `git rev-parse --git-path hooks`, marked
+  `managed-by: cimkit-git`. It rewrites its own shims, never overwrites a hook it didn't
+  write, and exits 1 naming that hook and the line to add to it.
+- The command is `<python> -m cimkit_git.cli hook <event>`, with the absolute path of the
+  Python install runs under, because Git's `sh` on Windows won't find the Pro conda
+  environment on its own. Running install again records the current Python.
+- Adds `*.aprx` and `cimkit.local.toml` to `.gitignore`, and `**/*.aprx.src/** -text`
+  to `.gitattributes`. It appends only the lines a file lacks and keeps its line endings.
 
 The repo also ships `.pre-commit-hooks.yaml` for teams that use the pre-commit
 framework. cimkit-git needs no `arcpy`, so the framework's isolated virtualenv works.

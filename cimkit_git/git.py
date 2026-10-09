@@ -181,3 +181,23 @@ def show(root: Path, tree: str, path: str) -> bytes | None:
         ).stdout
     except subprocess.CalledProcessError:
         return None
+
+
+def register_hook(root: Path, name: str, event: str, command: str) -> None:
+    """Register command as config hook name on event, replacing any earlier registration.
+
+    Git appends the hook's arguments to command, so command must not pass "$@" itself.
+    """
+    _git(root, "config", "--replace-all", f"hook.{name}.event", event)
+    _git(root, "config", "--replace-all", f"hook.{name}.command", command)
+
+
+def version() -> tuple[int, int]:
+    """Git's major and minor version, from "git version 2.55.0" or "git version 2.45.1.windows.1"."""
+    major, minor = subprocess.run(["git", "version"], capture_output=True, check=True).stdout.split()[2].split(b".")[:2]
+    return int(major), int(minor)
+
+
+def hooks_dir(start: Path) -> Path:
+    """Where git looks for hook scripts, honouring core.hooksPath."""
+    return (start / _git(start, "rev-parse", "--git-path", "hooks").strip()).resolve()
