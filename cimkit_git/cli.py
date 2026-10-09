@@ -210,28 +210,36 @@ def sync(ws: Workspace, args: argparse.Namespace, projects: list[Path]) -> int:
 def check(args: argparse.Namespace) -> int:
     """Takes no lock and reads no sync state: it reads only what is committed."""
     start = Path.cwd().resolve()
-    committed = checks.at_rev(start, args.rev) if args.rev else checks.working_tree(start)
+    return report(*findings(checks.at_rev(start, args.rev) if args.rev else checks.working_tree(start), args.target))
+
+
+def findings(committed: checks.Committed, target: str | None = None) -> tuple[list[str], list[str]]:
+    """check's error and warning lines."""
     cfg = committed.config
     errors: list[str] = []
     warnings: list[str] = []
-    if args.target:
+    if target:
         if not cfg.placeholders:
             raise ConfigError(f"{cfg.path} declares no targets")
         # Loaded only here: without a target, check needs no values and so no secrets.
         values = load_values(cfg.placeholders, cfg.path.parent / "cimkit.local.toml", os.environ)
         rel = cfg.path.relative_to(committed.root).as_posix()
-        errors += [f"{rel}: error: {args.target} has no value for {key}" for key in values.missing(args.target)]
+        errors += [f"{rel}: error: {target} has no value for {key}" for key in values.missing(target)]
     for name, read in committed.sources.items():
         try:
-            findings = checks.check(read(), cfg.placeholders)
+            found = checks.check(read(), cfg.placeholders)
         except CimkitError as exc:
             errors.append(f"{name}: error: {exc}")
             continue
-        for finding in findings:
+        for finding in found:
             if finding.kind == "path":
                 warnings.append(f"{name}/{finding.entry}: warning: {explain(finding)}")
             else:
                 errors.append(f"{name}/{finding.entry}: error: {explain(finding)}")
+    return errors, warnings
+
+
+def report(errors: list[str], warnings: list[str]) -> int:
     # Errors first: path warnings fire on nearly every project and would bury them.
     for line in errors + warnings:
         print(line)
@@ -239,16 +247,103 @@ def check(args: argparse.Namespace) -> int:
     return 1 if errors else 0
 
 
+# The statuses sync settles on its own.
+SYNCS = {Status.BINARY_EDITED, Status.NEW_PROJECT, Status.SOURCE_CHANGED, Status.NOT_BUILT}
+# Every status but those where the binary can hold no Pro edit that Source lacks: a
+# Source-only commit, such as a hand-resolved merge, then needs no Pro to make.
+BLOCKS_COMMIT = set(Status) - {Status.CLEAN, Status.SOURCE_CHANGED, Status.NOT_BUILT}
+
+
+def way_past(st: Status) -> str:
+    return "Run cimkit-git sync." if st in SYNCS else HINTS[st]
+
+
+def hook(args: argparse.Namespace) -> int:
+    if args.name == "pre-push":
+        return pre_push(args.args[0])
+    if args.name == "pre-commit":
+        return pre_commit()
+    return warn()
+
+
+def pre_commit() -> int:
+    start = Path.cwd().resolve()
+    ws = Workspace(start, os.environ)
+    # The index, not the working tree: it is what the commit will hold.
+    tree = git.write_tree(ws.root)
+    staged = set(git.tree_paths(ws.root, tree))
+    errors = []
+    for binary in ws.projects():
+        name = ws.name(binary)
+        if name in staged:
+            errors.append(f"{name}: error: the binary is staged; run git rm --cached {name}")
+        try:
+            st = ws.status(binary)
+        except CimkitError as exc:
+            errors.append(f"{name}: error: {exc}")
+            continue
+        if st in BLOCKS_COMMIT:
+            errors.append(f"{name}: error: {st.value}. {way_past(st)}")
+    found, warnings = findings(checks.at_rev(start, tree))
+    return report(errors + found, warnings)
+
+
+def pre_push(remote: str) -> int:
+    """Checks each commit the push sends, so a leak a later commit fixes still blocks:
+    the remote would keep it in history."""
+    start = Path.cwd().resolve()
+    root = git.repo_root(start)
+    # A delete sends nothing: its local sha is all zeros, at 40 or 64 digits by the repo's hash.
+    shas = [sha for line in sys.stdin.read().splitlines() if (sha := line.split()[1]).strip("0")]
+    commits = git.outgoing(root, shas, remote) if shas else []
+    failed = 0
+    for sha in commits:
+        try:
+            errors, _ = findings(checks.at_rev(start, sha))
+        except CimkitError as exc:
+            errors = [f"error: {exc}"]
+        # Path warnings never block, and would repeat for every commit that holds the path.
+        if errors:
+            failed += 1
+            print(f"commit {sha}:")
+            for error in errors:
+                print(f"    {error}")
+    if failed:
+        print(f"{failed} of {len(commits)} outgoing commit(s) fail check")
+    return 1 if failed else 0
+
+
+def warn() -> int:
+    """After git changed the working tree: say what needs a sync, and never fail."""
+    ws = Workspace(Path.cwd(), os.environ)
+    for binary in ws.projects():
+        try:
+            st = ws.status(binary)
+        except CimkitError as exc:
+            print(f"{ws.name(binary)}: error: {exc}")
+            continue
+        if st is not Status.CLEAN:
+            print(f"{ws.name(binary)}: {st.value}. {way_past(st)}")
+    return 0
+
+
+HOOKS = ["pre-commit", "pre-push", "post-checkout", "post-merge", "post-rewrite", "post-stash"]
+
 NO_INPUT = "never prompt to register a value; print the steps instead"
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cimkit-git")
-    commands = parser.add_subparsers(dest="command", required=True)
+    # The metavar leaves hook out of the usage line; a subparser with no help is left out of the list.
+    commands = parser.add_subparsers(dest="command", required=True, metavar="{status,check,sync,explode,build}")
     commands.add_parser("status", help="print each project's status")
     p = commands.add_parser("check", help="the CI gate: check committed Source for leaks and parse errors")
     p.add_argument("--target", help="also fail if this target lacks a value for a declared key")
     p.add_argument("--rev", help="check this commit instead of the working tree")
+    # Hidden: only the shims that install writes call it.
+    p = commands.add_parser("hook")
+    p.add_argument("name", choices=HOOKS)
+    p.add_argument("args", nargs="*", help=argparse.SUPPRESS)
     p = commands.add_parser("sync", help="explode or build, whichever the status calls for")
     p.add_argument("project", nargs="?", type=Path, help="a binary or its Source; all projects if omitted")
     p.add_argument("--no-input", action="store_true", help=NO_INPUT)
@@ -269,6 +364,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "check":
             return check(args)
+        if args.command == "hook":
+            return hook(args)
         ws = Workspace(Path.cwd(), os.environ)
         named = getattr(args, "project", None)
         projects = [ws.project(named)] if named else ws.projects()
@@ -280,4 +377,6 @@ def main(argv: list[str] | None = None) -> int:
             return run(ws, args, projects)
     except CimkitError as exc:
         print(f"cimkit-git: {exc}", file=sys.stderr)
-        return 1
+        # git has already changed the tree by the time a post hook runs, so failing would
+        # stop nothing; it would only make git report the hook as broken.
+        return 0 if args.command == "hook" and args.name.startswith("post-") else 1
