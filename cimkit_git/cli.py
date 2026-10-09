@@ -7,8 +7,10 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from cimkit_git.errors import CimkitError, PlaceholderError, RefusedError
+from cimkit_git import config, git
+from cimkit_git.errors import CimkitError, PlaceholderError, RefusedError, RegisterError
 from cimkit_git.placeholders import Problem
+from cimkit_git.register import add_key, set_value, suggest_key
 from cimkit_git.sync import Status, Workspace
 
 # Until install writes this line, status is the only place that names it.
@@ -66,14 +68,91 @@ def describe(problem: Problem) -> str:
     return f"{problem.entry}: no value is set for {problem.text}"
 
 
-def each_project(ws: Workspace, projects: list[Path], act: Callable[[Path], str]) -> int:
-    """Run act on each project and print what it did; one refusal doesn't stop the rest."""
+def interactive(args: argparse.Namespace) -> bool:
+    return not args.no_input and sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def ask(question: str) -> str | None:
+    try:
+        return input(question).strip()
+    except EOFError:
+        return None
+
+
+def choose_key(ws: Workspace, value: str, target: str) -> str | None:
+    """The key the user picks for value, or None if they skip."""
+    assert ws.config.placeholders and ws.values
+    keys = ws.config.placeholders.keys
+    suggestion = suggest_key(value, keys)
+    while True:
+        answer = ask(f"    Key for it in {target}" + (f" [{suggestion}]" if suggestion else "") + ", or s to skip: ")
+        if answer is None or answer == "s":
+            return None
+        key = answer or suggestion
+        if not key:
+            continue
+        if not config.NAME.fullmatch(key):
+            print("    A key is lowercase [a-z0-9_].")
+        elif key in ws.values.for_target(target):
+            print(f"    {key} already has a value in {target}.")
+        else:
+            return key
+
+
+def register_values(ws: Workspace, exc: PlaceholderError) -> bool:
+    """Prompt to register each unregistered value explode found. True if every one was.
+
+    Reloads the workspace after each one, so the next prompt sees the new key.
+    """
+    target = exc.target
+    unregistered = {p.text: p for p in exc.problems if p.kind == "unregistered"}
+    if target is None or not unregistered:
+        return False
+    # The local file holds the values, passwords included, so it must never be committed.
+    if not git.ignored(ws.root, ws.local_path):
+        print(f"Add {ws.local_path.name} to .gitignore before registering a value; it can hold passwords.")
+        return False
+    for value, problem in unregistered.items():
+        assert ws.config.placeholders
+        print(describe(problem))
+        key = choose_key(ws, value, target)
+        if key is None:
+            return False
+        try:
+            if key not in ws.config.placeholders.keys:
+                add_key(ws.config.path, key)
+            set_value(ws.local_path, target, key, value)
+        except RegisterError as err:
+            print(f"    {err}")
+            return False
+        ws.reload()
+        assert ws.values
+        lacking = [t for t in ws.config.placeholders.targets if key not in ws.values.for_target(t)]
+        print(f"    Registered {key} in {target}." + (f" Set it for {', '.join(lacking)} too." if lacking else ""))
+    return True
+
+
+def each_project(ws: Workspace, projects: list[Path], act: Callable[[Path], str], prompt: bool = False) -> int:
+    """Run act on each project and print what it did; one refusal doesn't stop the rest.
+
+    With prompt, an explode that finds unregistered values offers to register them, then
+    runs once more.
+    """
+
+    def attempt(binary: Path) -> str:
+        try:
+            return act(binary)
+        except PlaceholderError as exc:
+            if not (prompt and register_values(ws, exc)):
+                raise
+        return act(binary)
+
     code = 0
     unregistered = False
     for binary in projects:
         name = ws.name(binary)
         try:
-            print(f"{name}: {act(binary)}")
+            print(f"{name}: {attempt(binary)}")
             continue
         except PlaceholderError as exc:
             print(f"{name}: refused: placeholder problems")
@@ -99,7 +178,7 @@ def explode(ws: Workspace, args: argparse.Namespace, projects: list[Path]) -> in
     def act(binary: Path) -> str:
         return "exploded" + target_note(ws.explode_project(binary, force=args.force, target=args.target).target)
 
-    return each_project(ws, projects, act)
+    return each_project(ws, projects, act, interactive(args))
 
 
 def build(ws: Workspace, args: argparse.Namespace, projects: list[Path]) -> int:
@@ -116,7 +195,10 @@ def sync(ws: Workspace, args: argparse.Namespace, projects: list[Path]) -> int:
         done, record = ws.sync_project(binary)
         return done + target_note(record.target if record else None)
 
-    return each_project(ws, projects, act)
+    return each_project(ws, projects, act, interactive(args))
+
+
+NO_INPUT = "never prompt to register a value; print the steps instead"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -125,8 +207,10 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("status", help="print each project's status")
     p = commands.add_parser("sync", help="explode or build, whichever the status calls for")
     p.add_argument("project", nargs="?", type=Path, help="a binary or its Source; all projects if omitted")
+    p.add_argument("--no-input", action="store_true", help=NO_INPUT)
     p = commands.add_parser("explode", help="write Source from the binary")
     p.add_argument("project", nargs="?", type=Path, help="a binary or its Source; all projects if omitted")
+    p.add_argument("--no-input", action="store_true", help=NO_INPUT)
     p.add_argument("--force", action="store_true", help="overwrite Source edits made since the last sync")
     p.add_argument("--target", help="the target to record, which the next sync builds for")
     p = commands.add_parser("build", help="write the binary from Source")

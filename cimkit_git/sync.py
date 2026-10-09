@@ -119,14 +119,19 @@ class Workspace:
     def __init__(self, start: Path, environ: Mapping[str, str]):
         self.root = git.repo_root(start)
         self.state_path = git.git_dir(start) / "cimkit" / "state.json"
-        found = config.find_config(start.resolve(), self.root)
+        self._start, self._environ = start, environ
+        self.reload()
+        self.state = state.load(self.state_path)
+
+    def reload(self) -> None:
+        """Read config and values again, after registering a value changed them."""
+        found = config.find_config(self._start.resolve(), self.root)
         # With no config there is nothing to replace, and projects anywhere in the repo count.
         self.config = config.load_config(found) if found else config.Config(self.root / "cimkit.toml", None)
+        self.local_path = self.config.path.parent / "cimkit.local.toml"
         self.values = None
         if self.config.placeholders:
-            local = self.config.path.parent / "cimkit.local.toml"
-            self.values = load_values(self.config.placeholders, local, environ)
-        self.state = state.load(self.state_path)
+            self.values = load_values(self.config.placeholders, self.local_path, self._environ)
 
     @contextlib.contextmanager
     def locked(self) -> Iterator[None]:
@@ -249,7 +254,10 @@ class Workspace:
         facts, entries = seen.facts, seen.entries
         assert entries is not None and facts.binary_hash is not None
         target = self._target(target, facts.record)
-        files = self.explode(entries, facts.record)
+        try:
+            files = self.explode(entries, facts.record)
+        except PlaceholderError as exc:
+            raise PlaceholderError(exc.problems, target) from None
         src = source_dir(binary)
 
         def unchanged() -> None:
