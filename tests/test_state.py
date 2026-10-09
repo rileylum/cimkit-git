@@ -1,5 +1,7 @@
 """Sync state: the per-worktree record of what the tool last wrote or read."""
 
+from pathlib import Path
+
 import pytest
 
 from cimkit_git import errors, state
@@ -81,3 +83,22 @@ def test_explode_map_without_a_record_uses_every_visible_value():
     vals = make_values({"local": {"main_gdb": "C:\\local.gdb"}, "dev": {"archive_gdb": "D:\\arc.gdb"}})
 
     assert state.explode_map("s", None, vals) == {"C:\\local.gdb": "main_gdb", "D:\\arc.gdb": "archive_gdb"}
+
+
+def test_a_save_that_fails_partway_leaves_the_previous_state_whole(tmp_path, monkeypatch):
+    path = tmp_path / "state.json"
+    before = state.State("salt", {"map.aprx": Record("tree", "hash", "dev", {})})
+    state.save(before, path)
+    write_text = Path.write_text
+
+    def half_then_fail(self, text, *args, **kwargs):
+        write_text(self, text[: len(text) // 2], *args, **kwargs)
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(Path, "write_text", half_then_fail)
+
+    with pytest.raises(errors.WriteError):
+        state.save(state.State("salt"), path)
+
+    monkeypatch.undo()
+    assert state.load(path) == before

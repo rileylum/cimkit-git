@@ -12,11 +12,14 @@ def never():
     raise AssertionError("exploded the binary when its hash already decided")
 
 
-def facts(binary="B0", source="T0", index=None, record=REC, exploded=never, unmerged=False, converts_text=False):
+def facts(
+    binary="B0", source="T0", index=None, head=None, record=REC, exploded=never, unmerged=False, converts_text=False
+):
     return Facts(
         binary_hash=binary,
         source_tree=source,
         index_tree=index,
+        head_tree=head,
         record=record,
         exploded_tree=exploded,
         unmerged=unmerged,
@@ -75,6 +78,11 @@ def test_a_missing_side_or_record_decides_before_any_comparison(binary, source, 
 )
 def test_a_staged_source_matching_neither_side_would_be_lost(index, source, record, status):
     assert decide(facts(index=index, source=source, record=record)) is status
+
+
+def test_a_staged_source_matching_head_holds_nothing_to_lose():
+    # Explode leaves the committed tree in the index, matching neither the new Source nor the new record.
+    assert decide(facts(index="T2", head="T2", source="T1")) is Status.SOURCE_CHANGED
 
 
 @pytest.mark.parametrize(
