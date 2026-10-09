@@ -7,15 +7,14 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from cimkit_git import checks, config, git
+from cimkit_git import checks, config, git, installer
 from cimkit_git.errors import CimkitError, ConfigError, PlaceholderError, RefusedError, RegisterError
 from cimkit_git.placeholders import Problem
 from cimkit_git.register import add_key, set_value, suggest_key
 from cimkit_git.sync import Status, Workspace
 from cimkit_git.values import load_values
 
-# Until install writes this line, status is the only place that names it.
-LINE_ENDINGS_HINT = "Add this line to .gitattributes so git never converts Source:\n    **/*.aprx.src/** -text"
+LINE_ENDINGS_HINT = f"Run cimkit-git install, or add this line to .gitattributes so git never converts Source:\n    {installer.NO_CONVERT}"
 
 
 def status(ws: Workspace, args: argparse.Namespace, projects: list[Path]) -> int:
@@ -327,7 +326,16 @@ def warn() -> int:
     return 0
 
 
-HOOKS = ["pre-commit", "pre-push", "post-checkout", "post-merge", "post-rewrite", "post-stash"]
+def install() -> int:
+    root = git.repo_root(Path.cwd())
+    left = installer.install(root, sys.executable)
+    for path, command in left:
+        # core.hooksPath may point outside the repo.
+        shown = path.relative_to(root) if path.is_relative_to(root) else path
+        print(f"{shown.as_posix()}: error: not written by cimkit-git, so install left it alone. Add this line to it:")
+        print(f"    {command}")
+    return 1 if left else 0
+
 
 NO_INPUT = "never prompt to register a value; print the steps instead"
 
@@ -335,15 +343,16 @@ NO_INPUT = "never prompt to register a value; print the steps instead"
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cimkit-git")
     # The metavar leaves hook out of the usage line; a subparser with no help is left out of the list.
-    commands = parser.add_subparsers(dest="command", required=True, metavar="{status,check,sync,explode,build}")
+    commands = parser.add_subparsers(dest="command", required=True, metavar="{status,check,sync,explode,build,install}")
     commands.add_parser("status", help="print each project's status")
     p = commands.add_parser("check", help="the CI gate: check committed Source for leaks and parse errors")
     p.add_argument("--target", help="also fail if this target lacks a value for a declared key")
     p.add_argument("--rev", help="check this commit instead of the working tree")
     # Hidden: only the shims that install writes call it.
     p = commands.add_parser("hook")
-    p.add_argument("name", choices=HOOKS)
+    p.add_argument("name", choices=installer.HOOKS)
     p.add_argument("args", nargs="*", help=argparse.SUPPRESS)
+    commands.add_parser("install", help="make git run the checks on commit, push and checkout, and add the ignore lines")
     p = commands.add_parser("sync", help="explode or build, whichever the status calls for")
     p.add_argument("project", nargs="?", type=Path, help="a binary or its Source; all projects if omitted")
     p.add_argument("--no-input", action="store_true", help=NO_INPUT)
@@ -366,6 +375,8 @@ def main(argv: list[str] | None = None) -> int:
             return check(args)
         if args.command == "hook":
             return hook(args)
+        if args.command == "install":
+            return install()
         ws = Workspace(Path.cwd(), os.environ)
         named = getattr(args, "project", None)
         projects = [ws.project(named)] if named else ws.projects()
@@ -380,3 +391,7 @@ def main(argv: list[str] | None = None) -> int:
         # git has already changed the tree by the time a post hook runs, so failing would
         # stop nothing; it would only make git report the hook as broken.
         return 0 if args.command == "hook" and args.name.startswith("post-") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
