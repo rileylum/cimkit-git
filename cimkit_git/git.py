@@ -114,6 +114,22 @@ def rev_tree(root: Path, rev: str) -> str:
         raise RevError(f"{rev} names no commit or tree in this repo") from exc
 
 
+def write_tree(root: Path) -> str:
+    """The tree ID of the whole index, written into the object store. Fails on unmerged
+    entries, which git refuses to commit before pre-commit runs."""
+    return _git(root, "write-tree").strip()
+
+
+def outgoing(root: Path, shas: list[str], remote: str) -> list[str]:
+    """Commits reachable from any of shas that no ref of remote holds, oldest first, once each.
+
+    Compared with the remote-tracking refs rather than the sha git passes for the remote
+    side: that sha is all zeros for a new branch, and may be missing here after someone
+    else's push.
+    """
+    return _git(root, "rev-list", "--reverse", *shas, "--not", f"--remotes={remote}").split()
+
+
 def _ls_tree(root: Path, tree: str, directory: str) -> dict[str, str]:
     """Path relative to directory -> blob ID, for every file under directory in tree."""
     prefix = directory.rstrip("/") + "/" if directory else ""
