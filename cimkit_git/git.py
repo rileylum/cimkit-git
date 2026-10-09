@@ -6,7 +6,7 @@ import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 
-from cimkit_git.errors import NotAGitRepoError
+from cimkit_git.errors import NotAGitRepoError, RevError, SymlinkInSourceError
 
 
 def _git(root: Path, *args: str, stdin: bytes | None = None, env: Mapping[str, str] | None = None) -> str:
@@ -105,3 +105,63 @@ def head_tree(root: Path, directory: str) -> str | None:
 def unmerged(root: Path, directory: str) -> list[str]:
     out = _git(root, "ls-files", "-u", "-z", "--", directory.rstrip("/") + "/")
     return sorted({record.split("\t", 1)[1] for record in filter(None, out.split("\0"))})
+
+
+def rev_tree(root: Path, rev: str) -> str:
+    try:
+        return _git(root, "rev-parse", "--verify", "-q", f"{rev}^{{tree}}").strip()
+    except subprocess.CalledProcessError as exc:
+        raise RevError(f"{rev} names no commit or tree in this repo") from exc
+
+
+def _ls_tree(root: Path, tree: str, directory: str) -> dict[str, str]:
+    """Path relative to directory -> blob ID, for every file under directory in tree."""
+    prefix = directory.rstrip("/") + "/" if directory else ""
+    out = _git(root, "ls-tree", "-r", "-z", "--full-tree", tree, "--", prefix or ".")
+    blobs = {}
+    for record in filter(None, out.split("\0")):
+        meta, path = record.split("\t", 1)
+        mode, kind, oid = meta.split()
+        if kind != "blob":
+            continue  # a submodule holds no Source
+        # A link could pull a file from outside the repo into a check or a build.
+        if mode == "120000":
+            raise SymlinkInSourceError(f"{path} is a symlink; Source must hold plain files")
+        blobs[path[len(prefix):]] = oid
+    return blobs
+
+
+def tree_paths(root: Path, tree: str, directory: str = "") -> list[str]:
+    return sorted(_ls_tree(root, tree, directory))
+
+
+def tree_files(root: Path, tree: str, directory: str) -> dict[str, bytes]:
+    """Every file under directory in tree, keyed by its path relative to directory."""
+    blobs = _ls_tree(root, tree, directory)
+    if not blobs:
+        return {}
+    out = subprocess.run(
+        ["git", "cat-file", "--batch"],
+        cwd=root,
+        input="".join(oid + "\n" for oid in blobs.values()).encode(),
+        capture_output=True,
+        check=True,
+    ).stdout
+    files, pos = {}, 0
+    # Each object comes back as "<oid> blob <size>\n<bytes>\n", in request order.
+    for path in blobs:
+        header_end = out.index(b"\n", pos)
+        size = int(out[pos:header_end].split()[2])
+        files[path] = out[header_end + 1 : header_end + 1 + size]
+        pos = header_end + 1 + size + 1
+    return dict(sorted(files.items()))
+
+
+def show(root: Path, tree: str, path: str) -> bytes | None:
+    """The file at path in tree, or None if there is none."""
+    try:
+        return subprocess.run(
+            ["git", "cat-file", "blob", f"{tree}:{path}"], cwd=root, capture_output=True, check=True
+        ).stdout
+    except subprocess.CalledProcessError:
+        return None

@@ -2,6 +2,7 @@
 
 import re
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -59,11 +60,21 @@ def _format(path: Path, ph: dict) -> str:
     return fmt
 
 
-def _read(path: Path) -> dict | None:
+# Reads a file's bytes, or None if there is none: from disk, or from a commit for check --rev.
+Read = Callable[[Path], bytes | None]
+
+
+def disk(path: Path) -> bytes | None:
+    return path.read_bytes() if path.is_file() else None
+
+
+def _read(path: Path, read: Read) -> dict | None:
+    data = read(path)
+    if data is None:
+        return None
     try:
-        with path.open("rb") as f:
-            return table(path, tomllib.load(f))
-    except tomllib.TOMLDecodeError as exc:
+        return table(path, tomllib.loads(data.decode()))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
         raise ConfigError(f"{path}: {exc}") from exc
 
 
@@ -74,8 +85,8 @@ def _exclude(path: Path, table: dict) -> tuple[str, ...]:
     return tuple(value)
 
 
-def load_config(path: Path) -> Config:
-    table = _read(path) or {}
+def load_config(path: Path, read: Read = disk) -> Config:
+    table = _read(path, read) or {}
     ph = table.get("placeholders")
     placeholders = None
     if ph is not None:
@@ -88,7 +99,7 @@ def load_config(path: Path) -> Config:
     return Config(path, placeholders, _exclude(path, table))
 
 
-def find_config(start: Path, stop: Path) -> Path | None:
+def find_config(start: Path, stop: Path, read: Read = disk) -> Path | None:
     """Walk up from start to stop, inclusive. The first file with a cimkit table wins.
 
     stop is the git root: a config above it belongs to another repo.
@@ -96,8 +107,14 @@ def find_config(start: Path, stop: Path) -> Path | None:
     for directory in (start, *start.parents):
         for name in ("cimkit.toml", "pyproject.toml"):
             path = directory / name
-            if path.is_file() and _read(path) is not None:
+            if _read(path, read) is not None:
                 return path
         if directory == stop:
             break
     return None
+
+
+def discover(start: Path, root: Path, read: Read = disk) -> Config:
+    """The config that governs start. With none, nothing is replaced and the whole repo counts."""
+    found = find_config(start, root, read)
+    return load_config(found, read) if found else Config(root / "cimkit.toml", None)
