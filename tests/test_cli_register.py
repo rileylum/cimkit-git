@@ -19,7 +19,7 @@ from tests.test_cli_status import (  # noqa: F401
     layer,
     project,
 )
-from tests.test_git import repo  # noqa: F401
+from tests.test_git import repo, run  # noqa: F401
 
 
 class Terminal(io.StringIO):
@@ -165,3 +165,16 @@ def test_registering_refuses_while_git_would_track_the_local_file(configured, te
     assert out.endswith("3. Run the command again.\n")
     assert (configured / "cimkit.toml").read_text() == before
     assert not (configured / "cimkit.local.toml").exists()
+
+
+def test_registering_refuses_a_local_file_git_tracks_despite_the_ignore_line(ignored, terminal, capsys):
+    (ignored / "cimkit.local.toml").write_text("[dev]\nmain_gdb = 'DATABASE=dev'\n")
+    run(ignored, "add", "-f", "cimkit.local.toml")
+    before = (ignored / "cimkit.local.toml").read_text()
+    zip_json.write(ENTRIES, ignored / "map.aprx")
+    terminal("")
+
+    assert cli.main(["explode"]) == 1
+
+    assert "git rm --cached cimkit.local.toml" in capsys.readouterr().out
+    assert (ignored / "cimkit.local.toml").read_text() == before

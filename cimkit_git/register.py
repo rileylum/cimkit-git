@@ -92,9 +92,10 @@ def set_value(path: Path, target: str, key: str, value: str) -> None:
     want.setdefault(target, {})[key] = value
     # A JSON string is a valid TOML basic string, escapes included.
     line = f"{key} = {json.dumps(value, ensure_ascii=False)}\n"
-    header = re.search(rf"^[ \t]*\[[ \t]*{target}[ \t]*\][^\n]*\n", text, re.MULTILINE)
+    header = re.search(rf"^[ \t]*\[[ \t]*{target}[ \t]*\][^\n]*(?:\n|\Z)", text, re.MULTILINE)
     if header:
-        new = text[: header.end()] + line + text[header.end() :]
+        head = text[: header.end()]
+        new = head + ("" if head.endswith("\n") else "\n") + line + text[header.end() :]
     else:
         new = text + ("\n" if text and not text.endswith("\n") else "") + f"[{target}]\n{line}"
     try:

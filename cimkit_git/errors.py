@@ -49,6 +49,10 @@ class RevError(CimkitError):
     pass
 
 
+class UnmergedIndexError(CimkitError):
+    pass
+
+
 class StateError(CimkitError):
     pass
 

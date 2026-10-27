@@ -10,7 +10,7 @@ from typing import Literal
 from cimkit_git import config, git, source
 from cimkit_git import placeholders as ph_
 from cimkit_git.config import Config, Placeholders
-from cimkit_git.errors import EntryParseError
+from cimkit_git.errors import BadEntryNameError, DuplicateEntryError, EntryParseError
 from cimkit_git.sync import find_projects, find_sources, source_dir
 
 # Pro runs only on Windows, so only drive and UNC forms are machine paths. POSIX forms
@@ -19,7 +19,7 @@ from cimkit_git.sync import find_projects, find_sources, source_dir
 # character no Windows path holds, or a ; that ends a connection-string part.
 PATH = re.compile(r'(?:(?<![A-Za-z0-9])[A-Za-z]:[\\/]|\\\\[^\\/\s"<>|]+\\)[^"<>|;*?\r\n\t]*')
 
-Kind = ph_.Kind | Literal["parse", "path"]
+Kind = ph_.Kind | Literal["parse", "name", "path"]
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,12 @@ def check(files: Mapping[str, bytes], placeholders: Placeholders | None) -> list
             parsed[name] = source.strings(name, data)
         except EntryParseError as exc:
             findings.append(Finding("parse", name, str(exc.__cause__)))
+    if len(parsed) == len(files):
+        # The names build would refuse. Only the first is found: parse stops there.
+        try:
+            source.parse(files)
+        except (BadEntryNameError, DuplicateEntryError, EntryParseError) as exc:
+            findings.append(Finding("name", "", str(exc)))
     unregistered = set()
     if placeholders:
         # An empty map makes every real value in a configured field unregistered.

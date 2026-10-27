@@ -78,6 +78,16 @@ def test_an_undeclared_target_or_no_targets_at_all_fails_with_a_message(project,
     assert "'prd' is not a declared target" in capsys.readouterr().err
 
 
+def test_a_source_file_name_build_would_refuse_is_an_error(project, capsys):
+    write_source(project / "map.aprx.src", ENTRIES)
+    (project / "map.aprx.src" / "CON.json").write_text("{}\n")
+
+    code, out = check(capsys)
+
+    assert code == 1
+    assert out[0] == "map.aprx.src: error: CON.json: not a safe relative path on every OS"
+
+
 def committed(repo, name, entries, **extra):
     commit(repo, {**{f"{name}/{n}": d for n, d in source.render(entries).items()}, **extra})
 
@@ -101,6 +111,14 @@ def test_with_rev_check_uses_the_config_committed_in_it(configured, capsys):
 
     assert check(capsys, "--rev", "HEAD") == (0, ["0 error(s), 0 warning(s)"])
     assert check(capsys)[0] == 1
+
+
+def test_with_rev_and_target_local_keys_the_commit_does_not_declare_are_ignored(configured, capsys):
+    committed(configured, "map.aprx.src", NEUTRAL)
+    (configured / "cimkit.toml").write_text(CONFIG.replace('"main_gdb"', '"main_gdb", "new_gdb"'))
+    (configured / "cimkit.local.toml").write_text("[dev]\nmain_gdb = 'x'\nnew_gdb = 'y'\n")
+
+    assert check(capsys, "--rev", "HEAD", "--target", "dev") == (0, ["0 error(s), 0 warning(s)"])
 
 
 def test_with_rev_projects_are_found_under_the_committed_config_minus_exclude_and_hidden_dirs(

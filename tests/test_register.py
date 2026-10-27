@@ -102,6 +102,15 @@ def test_set_value_adds_to_an_existing_table_and_keeps_the_others(tmp_path):
     assert path.read_text().startswith('default_target = "dev"\n\n[dev]  # mine\n')
 
 
+def test_set_value_fills_an_empty_table_whose_header_ends_the_file(tmp_path):
+    path = tmp_path / "cimkit.local.toml"
+    path.write_text('[prd]\nmain_gdb = "b"\n\n[dev]')
+
+    set_value(path, "dev", "sales", WINDOWS)
+
+    assert tomllib.loads(path.read_text()) == {"prd": {"main_gdb": "b"}, "dev": {"sales": WINDOWS}}
+
+
 def test_set_value_refuses_a_file_it_cannot_edit_and_leaves_it_alone(tmp_path):
     path = tmp_path / "cimkit.local.toml"
     text = 'dev.main_gdb = "a"\n'
