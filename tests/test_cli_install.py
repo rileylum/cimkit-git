@@ -125,6 +125,67 @@ def test_on_git_before_2_54_installing_again_rewrites_its_own_shim_with_the_new_
     assert 'exec /new/python -m cimkit_git.cli hook post-merge "$@"' in (project / ".git" / "hooks" / "post-merge").read_text()
 
 
+def test_installing_after_a_git_upgrade_removes_the_shims_so_each_hook_runs_once(project, capsys, monkeypatch):
+    monkeypatch.setattr("cimkit_git.git.version", lambda: (2, 53))
+    install(capsys)
+    monkeypatch.setattr("cimkit_git.git.version", lambda: (2, 54))
+
+    install(capsys)
+
+    assert run(project, "hook", "list", "post-merge") == "cimkit-git-post-merge"
+
+
+def hook_config(repo):
+    """Every hook.* entry in the repo's git config."""
+    out = subprocess.run(["git", "config", "--get-regexp", r"^hook\."], cwd=repo, capture_output=True, text=True, check=False)
+    return out.stdout.splitlines()
+
+
+def test_installing_on_older_git_removes_the_config_hooks_a_newer_git_would_run_beside_the_shims(project, capsys, monkeypatch):
+    install(capsys)
+    monkeypatch.setattr("cimkit_git.git.version", lambda: (2, 53))
+
+    install(capsys)
+
+    assert hook_config(project) == []
+
+
+def uninstall(capsys):
+    code = cli.main(["uninstall"])
+    return code, capsys.readouterr().out.splitlines()
+
+
+def test_uninstall_removes_every_config_hook_install_registered_and_says_so(project, capsys):
+    install(capsys)
+
+    code, out = uninstall(capsys)
+
+    assert code == 0
+    assert hook_config(project) == []
+    assert out[0] == "removed hook.cimkit-git-pre-commit from git config"
+    assert len(out) == 6
+
+
+def test_uninstall_on_any_git_removes_the_shims_install_wrote_and_leaves_a_hook_it_did_not(project, capsys, monkeypatch):
+    monkeypatch.setattr("cimkit_git.git.version", lambda: (2, 53))
+    hooks = project / ".git" / "hooks"
+    (hooks / "pre-commit").write_text("#!/bin/sh\nmake lint\n")
+    install(capsys)
+    monkeypatch.setattr("cimkit_git.git.version", lambda: (2, 54))
+
+    code, out = uninstall(capsys)
+
+    assert code == 0
+    assert (hooks / "pre-commit").read_text() == "#!/bin/sh\nmake lint\n"
+    assert not (hooks / "post-merge").exists()
+    assert "removed .git/hooks/post-merge" in out
+    assert len(out) == 5
+
+
+def test_uninstall_with_nothing_installed_says_so_and_passes(project, capsys):
+    assert uninstall(capsys) == (0, ["nothing to remove"])
+
+
 def test_install_writes_a_gitignore_that_ignores_the_binary_and_the_local_values(project, capsys):
     install(capsys)
 

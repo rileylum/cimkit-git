@@ -203,6 +203,15 @@ def register_hook(root: Path, name: str, event: str, command: str) -> None:
     _git(root, "config", "--replace-all", f"hook.{name}.command", command)
 
 
+def unregister_hook(root: Path, name: str) -> bool:
+    """Remove config hook name from the repo's git config. False if it wasn't there."""
+    try:
+        _git(root, "config", "--local", "--remove-section", f"hook.{name}")
+    except subprocess.CalledProcessError:
+        return False
+    return True
+
+
 def version() -> tuple[int, int]:
     """Git's major and minor version, from "git version 2.55.0" or "git version 2.45.1.windows.1"."""
     major, minor = subprocess.run(["git", "version"], capture_output=True, check=True).stdout.split()[2].split(b".")[:2]

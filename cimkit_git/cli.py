@@ -333,15 +333,30 @@ def warn() -> int:
     return 0
 
 
+def shown(path: Path, root: Path) -> str:
+    # core.hooksPath may point outside the repo.
+    return (path.relative_to(root) if path.is_relative_to(root) else path).as_posix()
+
+
 def install() -> int:
     root = git.repo_root(Path.cwd())
     left = installer.install(root, sys.executable)
     for path, command in left:
-        # core.hooksPath may point outside the repo.
-        shown = path.relative_to(root) if path.is_relative_to(root) else path
-        print(f"{shown.as_posix()}: error: not written by cimkit-git, so install left it alone. Add this line to it:")
+        print(f"{shown(path, root)}: error: not written by cimkit-git, so install left it alone. Add this line to it:")
         print(f"    {command}")
     return 1 if left else 0
+
+
+def uninstall() -> int:
+    root = git.repo_root(Path.cwd())
+    names, shims = installer.uninstall(root)
+    for name in names:
+        print(f"removed hook.{name} from git config")
+    for path in shims:
+        print(f"removed {shown(path, root)}")
+    if not names and not shims:
+        print("nothing to remove")
+    return 0
 
 
 NO_INPUT = "never prompt to register a value; print the steps instead"
@@ -350,7 +365,7 @@ NO_INPUT = "never prompt to register a value; print the steps instead"
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cimkit-git")
     # The metavar leaves hook out of the usage line; a subparser with no help is left out of the list.
-    commands = parser.add_subparsers(dest="command", required=True, metavar="{status,check,sync,explode,build,install}")
+    commands = parser.add_subparsers(dest="command", required=True, metavar="{status,check,sync,explode,build,install,uninstall}")
     commands.add_parser("status", help="print each project's status")
     p = commands.add_parser("check", help="the CI gate: check committed Source for leaks and parse errors")
     p.add_argument("--target", help="also fail if this target lacks a value for a declared key")
@@ -360,6 +375,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("name", choices=installer.HOOKS)
     p.add_argument("args", nargs="*", help=argparse.SUPPRESS)
     commands.add_parser("install", help="make git run the checks on commit, push and checkout, and add the ignore lines")
+    commands.add_parser("uninstall", help="stop git running the cimkit-git checks")
     p = commands.add_parser("sync", help="explode or build, whichever the status calls for")
     p.add_argument("project", nargs="?", type=Path, help="a binary or its Source; all projects if omitted")
     p.add_argument("--no-input", action="store_true", help=NO_INPUT)
@@ -384,6 +400,8 @@ def main(argv: list[str] | None = None) -> int:
             return hook(args)
         if args.command == "install":
             return install()
+        if args.command == "uninstall":
+            return uninstall()
         ws = Workspace(Path.cwd(), os.environ)
         named = getattr(args, "project", None)
         projects = [ws.project(named)] if named else ws.projects()

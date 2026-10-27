@@ -188,6 +188,7 @@ A failure at any step leaves the previous output and the previous record untouch
 | `status` | prints each project's status | never |
 | `check [--rev REV] [--target T]` | the CI gate (see Checks) | — |
 | `install` | registers hooks, writes the ignore line | — |
+| `uninstall` | removes the hooks install registered | — |
 | `hook <name>` | hidden; called by the hook shims | — |
 
 `build --target T -o FILE` writes a deploy artifact and leaves the working binary and
@@ -227,11 +228,18 @@ loses no Pro edit and needs no Pro to make, so it goes through.
 - On older Git, writes shims into `git rev-parse --git-path hooks`, marked
   `managed-by: cimkit-git`. It rewrites its own shims, never overwrites a hook it didn't
   write, and exits 1 naming that hook and the line to add to it.
+- Git runs a hooks-dir script beside a config hook. So on Git 2.54 or later install
+  deletes its own shims, and on older Git it removes its config hooks. A hook never runs
+  twice after a Git upgrade or downgrade.
 - The command is `<python> -m cimkit_git.cli hook <event>`, with the absolute path of the
   Python install runs under, because Git's `sh` on Windows won't find the Pro conda
   environment on its own. Running install again records the current Python.
 - Adds `*.aprx` and `cimkit.local.toml` to `.gitignore`, and `**/*.aprx.src/** -text`
   to `.gitattributes`. It appends only the lines a file lacks and keeps its line endings.
+
+`uninstall` removes the `hook.cimkit-git-<event>` config sections and every marked shim,
+whatever the Git version, and prints what it removed. It leaves the ignore lines,
+`cimkit.local.toml` and the sync records alone.
 
 The repo also ships `.pre-commit-hooks.yaml` for teams that use the pre-commit
 framework. cimkit-git needs no `arcpy`, so the framework's isolated virtualenv works.
