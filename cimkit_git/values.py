@@ -38,7 +38,7 @@ class Values:
         return out
 
 
-def _read_local(placeholders: Placeholders, local: Path) -> dict:
+def _read_local(placeholders: Placeholders, local: Path, strict: bool) -> dict:
     if not local.is_file():
         return {}
     try:
@@ -46,30 +46,41 @@ def _read_local(placeholders: Placeholders, local: Path) -> dict:
             doc = tomllib.load(f)
     except tomllib.TOMLDecodeError as exc:
         raise ValuesError(f"{local}: {exc}") from exc
-    # Undeclared names are rejected rather than ignored: a typo would otherwise
+    # Strict rejects undeclared names rather than ignoring them: a typo would otherwise
     # surface later as a missing value with nothing pointing at the cause.
+    out: dict = {}
     for name, table in doc.items():
         if name == "default_target":
-            if table not in placeholders.targets:
+            if table in placeholders.targets:
+                out[name] = table
+            elif strict:
                 raise ValuesError(f"{local}: default_target {table!r} is not a declared target")
             continue
         if name not in placeholders.targets or not isinstance(table, dict):
-            raise ValuesError(f"{local}: [{name}] is not a declared target")
+            if strict:
+                raise ValuesError(f"{local}: [{name}] is not a declared target")
+            continue
+        out[name] = {}
         for key, value in table.items():
             if key not in placeholders.keys:
-                raise ValuesError(f"{local}: [{name}] {key} is not a declared key")
+                if strict:
+                    raise ValuesError(f"{local}: [{name}] {key} is not a declared key")
+                continue
             if not isinstance(value, str):
                 raise ValuesError(f"{local}: [{name}] {key} must be a string")
-    return doc
+            out[name][key] = value
+    return out
 
 
-def load_values(placeholders: Placeholders, local: Path, environ: Mapping[str, str]) -> Values:
+def load_values(placeholders: Placeholders, local: Path, environ: Mapping[str, str], strict: bool = True) -> Values:
     """Layer the local file, then environment variables; a variable wins.
 
     Variables for undeclared names are ignored: CI environments carry unrelated
-    CIMKIT__ variables, and only the committed config decides what a key is.
+    CIMKIT__ variables, and only the committed config decides what a key is. Without
+    strict, undeclared names in the local file are ignored too: it follows the working
+    tree's config, which can declare more than a past commit's.
     """
-    doc = _read_local(placeholders, local)
+    doc = _read_local(placeholders, local, strict)
     by_target = {}
     for target in placeholders.targets:
         layer = dict(doc.get(target, {}))

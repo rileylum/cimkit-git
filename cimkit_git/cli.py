@@ -118,7 +118,10 @@ def register_values(ws: Workspace, exc: PlaceholderError) -> bool:
         return False
     # The local file holds the values, passwords included, so it must never be committed.
     if not git.ignored(ws.root, ws.local_path):
-        print(f"Add {ws.local_path.name} to .gitignore before registering a value; it can hold passwords.")
+        local = ws.name(ws.local_path)
+        print(f"Add {local} to .gitignore before registering a value; it can hold passwords.")
+        # git check-ignore reports a tracked file as not ignored, whatever .gitignore says.
+        print(f"If git already tracks it, also run git rm --cached {local}")
         return False
     for value, problem in unregistered.items():
         assert ws.config.placeholders
@@ -209,11 +212,13 @@ def sync(ws: Workspace, args: argparse.Namespace, projects: list[Path]) -> int:
 def check(args: argparse.Namespace) -> int:
     """Takes no lock and reads no sync state: it reads only what is committed."""
     start = Path.cwd().resolve()
-    return report(*findings(checks.at_rev(start, args.rev) if args.rev else checks.working_tree(start), args.target))
+    if args.rev:
+        return report(*findings(checks.at_rev(start, args.rev), args.target, strict=False))
+    return report(*findings(checks.working_tree(start), args.target))
 
 
-def findings(committed: checks.Committed, target: str | None = None) -> tuple[list[str], list[str]]:
-    """check's error and warning lines."""
+def findings(committed: checks.Committed, target: str | None = None, strict: bool = True) -> tuple[list[str], list[str]]:
+    """check's error and warning lines. Without strict, see load_values."""
     cfg = committed.config
     errors: list[str] = []
     warnings: list[str] = []
@@ -221,7 +226,7 @@ def findings(committed: checks.Committed, target: str | None = None) -> tuple[li
         if not cfg.placeholders:
             raise ConfigError(f"{cfg.path} declares no targets")
         # Loaded only here: without a target, check needs no values and so no secrets.
-        values = load_values(cfg.placeholders, cfg.path.parent / "cimkit.local.toml", os.environ)
+        values = load_values(cfg.placeholders, cfg.path.parent / "cimkit.local.toml", os.environ, strict)
         rel = cfg.path.relative_to(committed.root).as_posix()
         errors += [f"{rel}: error: {target} has no value for {key}" for key in values.missing(target)]
     for name, read in committed.sources.items():
@@ -233,6 +238,8 @@ def findings(committed: checks.Committed, target: str | None = None) -> tuple[li
         for finding in found:
             if finding.kind == "path":
                 warnings.append(f"{name}/{finding.entry}: warning: {explain(finding)}")
+            elif finding.kind == "name":
+                errors.append(f"{name}: error: {finding.text}")
             else:
                 errors.append(f"{name}/{finding.entry}: error: {explain(finding)}")
     return errors, warnings

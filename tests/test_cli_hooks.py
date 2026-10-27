@@ -1,6 +1,7 @@
 """cimkit-git hook <name>, called directly as the shims will call it."""
 
 import io
+import subprocess
 
 import pytest
 
@@ -129,6 +130,19 @@ def test_pre_commit_blocks_on_a_project_it_cannot_read_and_still_checks_the_rest
     assert out[1] == "good.aprx: error: new project. Run cimkit-git sync."
 
 
+def test_pre_commit_run_by_hand_mid_merge_fails_with_a_message(project, capsys):
+    commit(project, {"notes.txt": b"base\n"})
+    run(project, "switch", "-qc", "other")
+    commit(project, {"notes.txt": b"theirs\n"})
+    run(project, "switch", "-q", "main")
+    commit(project, {"notes.txt": b"ours\n"})
+    subprocess.run(["git", "merge", "-q", "other"], cwd=project, capture_output=True, check=False)
+
+    assert cli.main(["hook", "pre-commit"]) == 1
+
+    assert "resolve the merge" in capsys.readouterr().err
+
+
 ZERO = "0" * 40
 
 
@@ -167,6 +181,22 @@ def test_pre_push_blocks_an_outgoing_commit_with_a_leak_even_when_a_later_one_fi
         "    map.aprx.src/map/map.json: error: unregistered value DATABASE=x.sde;USER=u;PASSWORD=***",
         "1 of 2 outgoing commit(s) fail check",
     ]
+
+
+def test_pre_push_of_two_refs_that_share_commits_checks_each_commit_once(remote, monkeypatch, capsys):
+    base = run(remote, "rev-parse", "HEAD")
+    bad = leak(remote)
+    run(remote, "switch", "-qc", "feature")
+    committed(remote, "map.aprx.src", NEUTRAL)
+    tip = run(remote, "rev-parse", "HEAD")
+
+    code, out = push(
+        capsys, monkeypatch, ("refs/heads/main", bad, "refs/heads/main", base), ("refs/heads/feature", tip, "refs/heads/feature", ZERO)
+    )
+
+    assert code == 1
+    assert out.count(f"commit {bad}:") == 1
+    assert out[-1] == "1 of 2 outgoing commit(s) fail check"
 
 
 def test_pre_push_ignores_a_branch_delete(remote, monkeypatch, capsys):

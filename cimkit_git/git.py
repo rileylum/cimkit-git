@@ -6,7 +6,12 @@ import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 
-from cimkit_git.errors import NotAGitRepoError, RevError, SymlinkInSourceError
+from cimkit_git.errors import (
+    NotAGitRepoError,
+    RevError,
+    SymlinkInSourceError,
+    UnmergedIndexError,
+)
 
 
 def _git(root: Path, *args: str, stdin: bytes | None = None, env: Mapping[str, str] | None = None) -> str:
@@ -115,9 +120,15 @@ def rev_tree(root: Path, rev: str) -> str:
 
 
 def write_tree(root: Path) -> str:
-    """The tree ID of the whole index, written into the object store. Fails on unmerged
-    entries, which git refuses to commit before pre-commit runs."""
-    return _git(root, "write-tree").strip()
+    """The tree ID of the whole index, written into the object store.
+
+    Raises UnmergedIndexError on unmerged entries. git commit refuses those before
+    pre-commit runs, so only a hook run by hand gets here.
+    """
+    try:
+        return _git(root, "write-tree").strip()
+    except subprocess.CalledProcessError as exc:
+        raise UnmergedIndexError("the index holds unmerged files; resolve the merge first") from exc
 
 
 def outgoing(root: Path, shas: list[str], remote: str) -> list[str]:
