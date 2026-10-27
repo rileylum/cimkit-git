@@ -1,4 +1,4 @@
-"""cimkit-git install: point git's hooks at cimkit-git hook. install.py is the old design's."""
+"""cimkit-git install and uninstall: point git's hooks at cimkit-git hook, or stop. install.py is the old design's."""
 
 import shlex
 from pathlib import Path
@@ -28,18 +28,41 @@ def install(root: Path, python: str) -> list[tuple[Path, str]]:
         # The absolute Python, because git's sh on Windows won't find Pro's conda env on PATH.
         # cimkit_git.cli, not cimkit_git: the package's __main__ is the old git cim command.
         command = f"{shlex.quote(python)} -m cimkit_git.cli hook {event}"
+        # A friendly name equal to an event name is a fatal error in git.
+        name, path = f"cimkit-git-{event}", hooks / event
+        # Git runs a hooks-dir script beside a config hook, so whichever way install
+        # registered a hook before a Git upgrade or downgrade must go, or it runs twice.
         if config:
-            # A friendly name equal to an event name is a fatal error in git.
-            git.register_hook(root, f"cimkit-git-{event}", event, command)
-        elif ours(hooks / event):
-            write_shim(hooks / event, command)
+            git.register_hook(root, name, event, command)
+            if shim(path):
+                path.unlink()
+            continue
+        git.unregister_hook(root, name)
+        if ours(path):
+            write_shim(path, command)
         else:
-            left.append((hooks / event, f'{command} "$@"'))
+            left.append((path, f'{command} "$@"'))
     return left
 
 
+def uninstall(root: Path) -> tuple[list[str], list[Path]]:
+    """Remove every hook install registered, on any Git, so it also cleans up after an
+    upgrade. Returns the config hook names and the shims it removed."""
+    hooks = git.hooks_dir(root)
+    names = [name for event in HOOKS if git.unregister_hook(root, name := f"cimkit-git-{event}")]
+    shims = [path for event in HOOKS if shim(path := hooks / event)]
+    for path in shims:
+        path.unlink()
+    return names, shims
+
+
+def shim(path: Path) -> bool:
+    """Whether path is a shim install wrote."""
+    return path.is_file() and MARKER.encode() in path.read_bytes()
+
+
 def ours(path: Path) -> bool:
-    return not path.exists() or MARKER.encode() in path.read_bytes()
+    return not path.exists() or shim(path)
 
 
 def add_lines(path: Path, lines: list[str]) -> None:
