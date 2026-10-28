@@ -199,6 +199,31 @@ def test_pre_push_of_two_refs_that_share_commits_checks_each_commit_once(remote,
     assert out[-1] == "1 of 2 outgoing commit(s) fail check"
 
 
+def test_pre_push_under_the_pre_commit_framework_checks_the_ref_it_passes_in_the_environment(remote, monkeypatch, capsys):
+    bad = leak(remote)
+    # The framework reads git's stdin itself, passes no arguments, and names the first ref in variables.
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    monkeypatch.setenv("PRE_COMMIT_REMOTE_NAME", "origin")
+    monkeypatch.setenv("PRE_COMMIT_TO_REF", bad)
+
+    code, out = hook(capsys, "pre-push")
+
+    assert code == 1
+    assert out[0] == f"commit {bad}:"
+
+
+def test_pre_push_under_the_pre_commit_framework_falls_back_to_the_local_branch_without_a_to_ref(remote, monkeypatch, capsys):
+    bad = leak(remote)
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    monkeypatch.setenv("PRE_COMMIT_REMOTE_NAME", "origin")
+    monkeypatch.setenv("PRE_COMMIT_LOCAL_BRANCH", "refs/heads/main")
+
+    code, out = hook(capsys, "pre-push")
+
+    assert code == 1
+    assert out[0] == f"commit {bad}:"
+
+
 def test_pre_push_ignores_a_branch_delete(remote, monkeypatch, capsys):
     base = run(remote, "rev-parse", "HEAD")
 
