@@ -266,7 +266,7 @@ def way_past(st: Status) -> str:
 
 def hook(args: argparse.Namespace) -> int:
     if args.name == "pre-push":
-        return pre_push(args.args[0])
+        return pre_push(args.args)
     if args.name == "pre-commit":
         return pre_commit()
     return warn()
@@ -294,13 +294,20 @@ def pre_commit() -> int:
     return report(errors + found, warnings)
 
 
-def pre_push(remote: str) -> int:
+def pre_push(args: list[str]) -> int:
     """Checks each commit the push sends, so a leak a later commit fixes still blocks:
     the remote would keep it in history."""
     start = Path.cwd().resolve()
     root = git.repo_root(start)
-    # A delete sends nothing: its local sha is all zeros, at 40 or 64 digits by the repo's hash.
-    shas = [sha for line in sys.stdin.read().splitlines() if (sha := line.split()[1]).strip("0")]
+    if args:
+        remote = args[0]
+        # A delete sends nothing: its local sha is all zeros, at 40 or 64 digits by the repo's hash.
+        shas = [sha for line in sys.stdin.read().splitlines() if (sha := line.split()[1]).strip("0")]
+    else:
+        # The pre-commit framework passes no arguments: it reads git's stdin itself and names
+        # only the first ref it pushes. TO_REF is unset when that ref holds the root commit.
+        remote = os.environ["PRE_COMMIT_REMOTE_NAME"]
+        shas = [os.environ.get("PRE_COMMIT_TO_REF") or os.environ["PRE_COMMIT_LOCAL_BRANCH"]]
     commits = git.outgoing(root, shas, remote) if shas else []
     failed = 0
     for sha in commits:
@@ -340,6 +347,11 @@ def shown(path: Path, root: Path) -> str:
 
 def install() -> int:
     root = git.repo_root(Path.cwd())
+    framework = installer.framework(root)
+    if framework:
+        installer.ignore(root)
+        print(f"{shown(framework, root)}: note: the pre-commit framework runs this repo's hooks, so install registered none. List the cimkit-git hook ids in {installer.FRAMEWORK_CONFIG}.")
+        return 0
     left = installer.install(root, sys.executable)
     for path, command in left:
         print(f"{shown(path, root)}: error: not written by cimkit-git, so install left it alone. Add this line to it:")
