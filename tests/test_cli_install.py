@@ -1,6 +1,7 @@
 """cimkit-git install, checked by letting git run the hooks it registers."""
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,14 @@ def install(capsys):
 
 def git_commit(repo):
     return subprocess.run(["git", "commit", "-qm", "c"], cwd=repo, capture_output=True, text=True, check=False)
+
+
+def test_python_dash_m_cimkit_git_runs_the_command(project, importable):
+    zip_json.write(ENTRIES, project / "map.aprx")
+
+    result = subprocess.run([sys.executable, "-m", "cimkit_git", "status"], cwd=project, capture_output=True, text=True, check=False)
+
+    assert result.stdout == "map.aprx: new project\n"
 
 
 def test_git_runs_the_registered_pre_commit_hook_and_it_blocks_an_unsynced_project(project, capsys, importable):

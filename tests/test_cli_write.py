@@ -17,6 +17,7 @@ from tests.test_cli_status import (  # noqa: F401
     project,
     record_sync,
     status,
+    write_source,
 )
 from tests.test_git import repo, run  # noqa: F401
 
@@ -172,6 +173,15 @@ def test_build_output_writes_an_artifact_and_leaves_the_working_binary_and_recor
     # A rewritten binary is still clean only while the record holds the local build.
     zip_json.write(REFORMATTED, binary)
     assert status(capsys) == ["map.aprx: clean"]
+
+
+def test_build_output_in_a_fresh_clone_names_the_source_and_creates_the_output_dir(configured, capsys):
+    write_source(configured / "map.aprx.src", NEUTRAL)
+    (configured / "cimkit.local.toml").write_text(f"[dev]\nmain_gdb = '{PRD}'\n")
+
+    assert cli.main(["build", "map.aprx.src", "--target", "dev", "-o", "dist/map.aprx"]) == 0
+
+    assert json.loads(zip_json.read(configured / "dist" / "map.aprx")["map/map.json"]) == json.loads(layer(PRD))
 
 
 def test_build_output_needs_a_project(configured, capsys):

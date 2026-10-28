@@ -6,11 +6,50 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+A redesign. Nothing from 0.3.0 carries over: no command, file or hook is compatible.
+`docs/design.md` has the design and its rulings.
+
+### Changed (breaking)
+
+- **The command is `cimkit-git`.** `git cim` is gone: git turned `git cim --help` into a
+  man-page lookup that failed. `python -m cimkit_git` runs the same command.
+- **The binary is never committed.** Source (`map.aprx.src/`) is the only committed
+  form, and `install` git-ignores `*.aprx`.
+- **Hooks check; they never write.** You run `sync`, `explode` or `build` yourself, and
+  the hooks refuse a commit or push that would lose a Pro edit or leak a value.
+- **Config is TOML**, in `cimkit.toml` or `[tool.cimkit.git]` in `pyproject.toml`.
+  There are no modes. `[git.placeholders]` declares fields, keys and targets; with none,
+  nothing is replaced. `aprx.json`, `connections/*.json` and `local.json` are gone.
+- **Values live outside the repo**, in a git-ignored `cimkit.local.toml` or in
+  `CIMKIT__<TARGET>__<KEY>` environment variables.
+- **Python 3.11 or later.**
+- **Pro 2.x projects are refused.** Open and save them in Pro 3 first.
+- **A JSON or XML entry that fails to parse is an error**, not passed through.
+
+### Added
+
+- `sync`: explodes or builds, whichever the project's status calls for, and refuses
+  when both the binary and Source changed.
+- `status`: prints what each project needs.
+- `build --target T -o FILE`: a deploy copy for any target, leaving the working binary
+  alone.
+- `check [--rev REV] [--target T]`: the CI gate. It finds real values in configured
+  fields, unknown keys, unparseable entries and bad names, warns on machine paths, and
+  with `--target` requires every value.
+- Registering a new value from `sync` or `explode`, with a suggested key.
+- `uninstall`.
+- Hooks on Git 2.54 or later are registered in git config, beside your own.
+- `.pre-commit-hooks.yaml` for the pre-commit framework.
+- Case-colliding entry names, such as `Map/` beside `map/`, are escaped in Source and
+  restored on build.
+
 ### Removed
 
-- The deprecated `aprx` command; use `git cim`.
-- `git cim install` no longer recognises hooks written by `aprx-tools`. That package
-  had no users and has been deleted from PyPI.
+- The commands `git cim`, `aprx`, `pack` (use `build -o`), `verify` (use `check`),
+  `compare` and `connections`.
+- `aprx.json`, its modes and `commit_binary`.
+- Recognising hooks written by `aprx-tools`. That package had no users and has been
+  deleted from PyPI.
 
 ## [0.3.0] - 2026-10-06
 
