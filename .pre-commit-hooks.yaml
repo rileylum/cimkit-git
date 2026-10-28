@@ -1,0 +1,58 @@
+# For teams that use the pre-commit framework. Don't also run cimkit-git install: git
+# would run both. The framework has no post-stash stage, and its pre-push stage passes
+# only the first ref a push sends, so a push of several branches checks only the first.
+# The post-* hooks only warn and always pass, so they need verbose: the framework hides a
+# passing hook's output.
+
+- id: cimkit-git-pre-commit
+  name: cimkit-git pre-commit
+  description: block a commit that would miss a binary edit or leak a value
+  entry: cimkit-git hook pre-commit
+  language: python
+  pass_filenames: false
+  always_run: true
+  stages: [pre-commit]
+  minimum_pre_commit_version: "3.2.0"
+
+- id: cimkit-git-pre-push
+  name: cimkit-git pre-push
+  description: block a push whose commits leak a value
+  entry: cimkit-git hook pre-push
+  language: python
+  pass_filenames: false
+  always_run: true
+  stages: [pre-push]
+  minimum_pre_commit_version: "3.2.0"
+
+- id: cimkit-git-post-checkout
+  name: cimkit-git post-checkout
+  description: say which projects need a sync
+  entry: cimkit-git hook post-checkout
+  language: python
+  pass_filenames: false
+  always_run: true
+  stages: [post-checkout]
+  verbose: true
+  minimum_pre_commit_version: "3.2.0"
+
+- id: cimkit-git-post-merge
+  name: cimkit-git post-merge
+  description: say which projects need a sync
+  entry: cimkit-git hook post-merge
+  language: python
+  pass_filenames: false
+  always_run: true
+  stages: [post-merge]
+  verbose: true
+  minimum_pre_commit_version: "3.2.0"
+
+- id: cimkit-git-post-rewrite
+  name: cimkit-git post-rewrite
+  description: say which projects need a sync
+  entry: cimkit-git hook post-rewrite
+  language: python
+  pass_filenames: false
+  always_run: true
+  stages: [post-rewrite]
+  verbose: true
+  minimum_pre_commit_version: "3.2.0"

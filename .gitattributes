@@ -1,4 +1,2 @@
-# .aprx files are committed but treated as binary so git never attempts a text
-# merge on the zip. Binary conflicts are resolved automatically: the pre-commit
-# hook always regenerates the .aprx from the canonical .aprx.src directory.
+# The test fixtures are .aprx zips: git must never diff, merge or convert them.
 *.aprx binary
