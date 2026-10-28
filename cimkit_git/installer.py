@@ -1,4 +1,4 @@
-"""cimkit-git install and uninstall: point git's hooks at cimkit-git hook, or stop. install.py is the old design's."""
+"""cimkit-git install and uninstall: point git's hooks at cimkit-git hook, or stop."""
 
 import shlex
 from pathlib import Path
@@ -29,7 +29,6 @@ def install(root: Path, python: str) -> list[tuple[Path, str]]:
     left = []
     for event in HOOKS:
         # The absolute Python, because git's sh on Windows won't find Pro's conda env on PATH.
-        # cimkit_git.cli, not cimkit_git: the package's __main__ is the old git cim command.
         command = f"{shlex.quote(python)} -m cimkit_git.cli hook {event}"
         # A friendly name equal to an event name is a fatal error in git.
         name, path = f"cimkit-git-{event}", hooks / event

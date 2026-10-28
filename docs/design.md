@@ -1,9 +1,12 @@
 # cimkit-git redesign
 
-Status: draft 4. Draft 3 was revised after the adversarial reviews in
+Status: draft 4, built. Draft 3 was revised after the adversarial reviews in
 `plans/2026-10-06-design-challenge-codex.md` and `plans/2026-10-06-design-challenge-fable.md`;
-draft 4 after the corpus survey in `plans/2026-10-06-corpus-survey.md`.
-Nothing here is built yet.
+draft 4 after the corpus survey in `plans/2026-10-06-corpus-survey.md`. The build slices
+are PRs #6 to #17, and their descriptions record the rulings made along the way.
+
+Not built yet: `explode --raw`, `--config`, and the check for Pro's lock file (open
+question 1).
 
 ## Goals
 

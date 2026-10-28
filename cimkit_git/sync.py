@@ -317,6 +317,8 @@ class Workspace:
             raise RefusedError(Status.NEW_PROJECT)
         target = self._target(target, self.state.records.get(self.name(binary)))
         entries = self.build(source.read_dir(src), target)
+        # A deploy writes into a fresh dist dir as often as not.
+        out.parent.mkdir(parents=True, exist_ok=True)
         replace.replace_file(out, lambda path: zip_json.write(entries, path), lambda: None)
         return target
 
